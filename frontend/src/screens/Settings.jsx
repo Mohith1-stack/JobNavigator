@@ -165,6 +165,12 @@ export default function Settings() {
   const [resumes, setResumes] = useState([])
   const [personaAvailable, setPersonaAvailable] = useState(false)
   const [query, setQuery] = useState('')
+  const [backendVersion, setBackendVersion] = useState('')  // from /health; only shown when it differs from this build
+  useEffect(() => {
+    let on = true
+    fetch('/health').then((r) => r.ok ? r.json() : null).then((h) => { if (on && h?.version) setBackendVersion(String(h.version)) }).catch(() => {})
+    return () => { on = false }
+  }, [])
   // Anchor rail highlights where the scroller is parked; opens at the top (Display, the first section).
   const [active, setActive] = useState('appearance')
   const [info, setInfo] = useState(null)      // which row's info panel is open
@@ -303,6 +309,7 @@ export default function Settings() {
   const SW = (label, help, offHelp, key, o = {}) => ({ kind: 'switch', label, help, offHelp, key, ...o })
   const E = (label, help, key, o = {}) => ({ kind: 'edit', label, help, key, ...o })
   const BT = (label, help, btnLabel, act, o = {}) => ({ kind: 'button', label, help, btnLabel, act, ...o })
+  const ST = (label, help, text, o = {}) => ({ kind: 'static', label, help, text, ...o })
   // A value the app writes and the user may only look at (and clear); `key` is redacted by GET /settings.
   // The row can only show "set / not set" plus remaining validity, from `sinceKey` + `days`.
   const RO = (label, help, key, o = {}) => ({ kind: 'readonly', label, help, key, ...o })
@@ -480,10 +487,12 @@ export default function Settings() {
         B('Proxy URL', 'Used by scrapes that hit rate limits or geo-blocks. Empty = direct.', 'proxy_url', { mono: true, w: '340px', placeholder: 'socks5://127.0.0.1:9050' }),
         { kind: 'apikey', label: 'Dashboard API key', help: 'Saving refreshes the session cookie so iframes keep working.' },
         BT('DB backup', 'DB snapshot now, outside the cron.', 'Run backup', () => api.post('/db/backup')),
+        ST('Version', 'This dashboard build. The extension shows its own version in its popup.',
+          backendVersion && backendVersion !== __APP_VERSION__ ? `${__APP_VERSION__} · backend ${backendVersion}` : __APP_VERSION__),
       ]],
     ]
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [S, resumes, personaAvailable, trig, li])
+  }, [S, resumes, personaAvailable, trig, li, backendVersion])
 
   const q = query.trim().toLowerCase()
   const matches = (sec) => !q || sec[2].toLowerCase().includes(q) ||
@@ -715,6 +724,8 @@ function Row({ r, ctx }) {
         )
       case 'apikey':
         return <ApiKeyRow value={val('dashboard_api_key')} save={save} flash={flash} />
+      case 'static':
+        return <Mono style={{ fontSize: 12 }}>{r.text}</Mono>
       case 'readonly': {
         const set = !!val(r.key)
         if (!set) return <Helper style={{ flex: 1, minWidth: 0 }}>{r.emptyText || 'Not set'}</Helper>
