@@ -180,3 +180,45 @@ def test_bulk_delete_rejects_non_list_ids(api_client, test_db):
     _seed_first_run(test_db)
     resp = api_client.post("/api/applications/bulk-delete", json={"ids": {"id": 1}})
     assert resp.status_code == 400, resp.text
+
+
+# ── undo leaves no trace ─────────────────────────────────────────────────────
+
+def _transitions(db, app_id):
+    from backend.models.db import Application
+    db.expire_all()
+    return list(db.query(Application).filter(Application.id == app_id).one().status_transitions or [])
+
+
+def test_patch_undo_pops_the_transition_it_reverses(api_client, test_db):
+    _seed_first_run(test_db)
+    app = _make_app(test_db, status="applied")
+    api_client.patch(f"/api/applications/{app.id}", json={"status": "interview"})
+    assert [t["to"] for t in _transitions(test_db, app.id)][-1:] == ["interview"]
+    r = api_client.patch(f"/api/applications/{app.id}", json={"status": "applied", "undo": True})
+    assert r.status_code == 200
+    ts = _transitions(test_db, app.id)
+    assert not any(t["to"] == "interview" for t in ts)
+    test_db.expire_all()
+    assert test_db.get(type(app), app.id).status == "applied"
+
+
+def test_patch_undo_falls_back_to_a_normal_transition_when_history_differs(api_client, test_db):
+    _seed_first_run(test_db)
+    app = _make_app(test_db, status="applied")
+    api_client.patch(f"/api/applications/{app.id}", json={"status": "interview"})
+    api_client.patch(f"/api/applications/{app.id}", json={"status": "offer"})
+    # an "undo" back to applied is not the reverse of the last move (offer <- interview)
+    api_client.patch(f"/api/applications/{app.id}", json={"status": "applied", "undo": True})
+    tos = [t["to"] for t in _transitions(test_db, app.id)]
+    assert tos[-3:] == ["interview", "offer", "applied"]
+
+
+def test_bulk_undo_pops_transitions(api_client, test_db):
+    _seed_first_run(test_db)
+    a, b = _make_app(test_db, status="applied"), _make_app(test_db, status="applied")
+    api_client.post("/api/applications/bulk-update", json={"ids": [str(a.id), str(b.id)], "status": "rejected"})
+    r = api_client.post("/api/applications/bulk-update", json={"ids": [str(a.id), str(b.id)], "status": "applied", "undo": True})
+    assert r.status_code == 200 and r.json()["updated"] == 2
+    for app in (a, b):
+        assert not any(t["to"] == "rejected" for t in _transitions(test_db, app.id))

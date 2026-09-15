@@ -296,12 +296,21 @@ export default function Applications() {
   const selectedRows = useMemo(() => apps.filter((a) => checked.has(a.id)), [apps, checked])
   // one bulk write per (previous status) group — the rows in a batch can have come
   // from different stages, and each goes back to its own.
+  // The stepper's own undo: the toast reverses the move, and the server drops the
+  // transition it reverses (undo: true) so a misclick never reaches the Stats funnel.
+  const stageWithUndo = (app, status) => {
+    const prev = app.status
+    if (!prev || prev === status) return
+    patch(app.id, { status })
+    pushToast({ kind: 'undo', msg: `Moved to ${STAGE[status]?.label || status}.`, action: 'Undo',
+      onAction: () => patch(app.id, { status: prev, undo: true }) })
+  }
   const bulkUndo = async (prev) => {
     if (!prev.length) return
     const groups = new Map()
     prev.forEach((p) => { if (!groups.has(p.status)) groups.set(p.status, []); groups.get(p.status).push(p.id) })
     try {
-      for (const [status, ids] of groups) await api.post('/applications/bulk-update', { ids, status })
+      for (const [status, ids] of groups) await api.post('/applications/bulk-update', { ids, status, undo: true })
       load(); window.dispatchEvent(new CustomEvent('jn:counts-changed'))
       pushToast({ kind: 'success', msg: `Restored ${prev.length} application${prev.length === 1 ? '' : 's'}.` })
     } catch (e) { console.error(e); pushToast({ kind: 'error', msg: `Could not undo ${prev.length} application${prev.length === 1 ? '' : 's'}` + errSuffix(e) }); load() }
@@ -581,7 +590,7 @@ export default function Applications() {
 
         {/* detail */}
         {d ? <Detail d={d} history={history} menuOpen={menuOpen} setMenuOpen={setMenuOpen}
-          onStage={(s) => patch(d.id, { status: s })} onNotes={(v, now) => saveNotes(d.id, v, now)}
+          onStage={(s) => stageWithUndo(d, s)} onNotes={(v, now) => saveNotes(d.id, v, now)}
           onDelete={() => remove(d)} navigate={navigate}
           intForm={intForm} setIntForm={setIntForm} intWhat={intWhat} setIntWhat={setIntWhat}
           intWhen={intWhen} setIntWhen={setIntWhen} intWhere={intWhere} setIntWhere={setIntWhere}

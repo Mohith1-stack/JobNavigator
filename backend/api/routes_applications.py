@@ -428,10 +428,14 @@ def update_application(app_id: str, updates: dict, db: Session = Depends(get_db)
         raise HTTPException(status_code=400,
                             detail=f"status must be one of {sorted(VALID_STATUSES)}")
     changed = False
+    undo = bool(updates.pop("undo", False))   # the toast's Undo: reverse the last move, do not log a new one
     if "status" in updates:
         if updates["status"] != app.status:
-            from backend.models.db import record_transition
-            record_transition(app, updates["status"], "ui")
+            from backend.models.db import record_transition, revert_transition
+            if undo:
+                revert_transition(app, updates["status"])
+            else:
+                record_transition(app, updates["status"], "ui")
             changed = True
         # Same status = click on the already-active stage; record_transition() already
         # skips logging it, so skip updated_at too — bumping it would reset the ageing signal.
@@ -496,10 +500,11 @@ def bulk_update_applications(body: dict, db: Session = Depends(get_db)):
     the row must not reset because it was caught in a selection).
     """
     from backend.api._input import str_field
-    from backend.models.db import record_transition
+    from backend.models.db import record_transition, revert_transition
 
     ids = _bulk_ids(body)
     status = str_field(body, "status", required=True)
+    undo = bool((body or {}).get("undo", False))   # the bulk toast's Undo, see PATCH
     if status not in VALID_STATUSES:
         raise HTTPException(status_code=400,
                             detail=f"status must be one of {sorted(VALID_STATUSES)}")
@@ -519,7 +524,10 @@ def bulk_update_applications(body: dict, db: Session = Depends(get_db)):
         if app.status == status:
             skipped += 1
             continue
-        record_transition(app, status, "ui")
+        if undo:
+            revert_transition(app, status)
+        else:
+            record_transition(app, status, "ui")
         app.updated_at = utcnow()
         updated += 1
     db.commit()
