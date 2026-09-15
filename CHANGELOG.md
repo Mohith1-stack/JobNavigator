@@ -26,7 +26,7 @@ The classic dashboard stays at `/classic` for this release too. Upgrade: `git pu
 - **Add a job to the feed from the Log modal** (by @volkotyk, #9): the Applications › Log modal's Status now offers New and Saved beside the stages; those write a feed job only (`POST /jobs/manual`, deduplicated against existing rows), and a ✦ Tailor trigger beside each base résumé saves the row and starts a tailored copy.
 - **Applications: undo on the stage stepper.** Moving one application to another stage shows the same undo toast the bulk bar has; an undo drops the transition it reverses instead of logging a new one, so the Stats funnel stays honest.
 - **Getting-started guide** (`docs/GETTING-STARTED.md`): install, provider choice including the Claude Code and Codex CLI subscription logins from inside the container, résumés and Persona, companies, searches, the feed, the extension, Telegram and Gmail. README Quick Start reworked around it.
-- **Version** shown in Settings › System (backend build noted when it differs) and on `/health`.
+- **Version** in the Settings colophon comes from the build (the backend's is noted when it differs) and is on `/health`.
 
 ### Changed
 - **Status filter:** picking nothing shows every status, like the other filters, and the pill's ✕ clears to Any; a browser with no saved filters starts on New.

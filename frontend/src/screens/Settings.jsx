@@ -165,7 +165,7 @@ export default function Settings() {
   const [resumes, setResumes] = useState([])
   const [personaAvailable, setPersonaAvailable] = useState(false)
   const [query, setQuery] = useState('')
-  const [backendVersion, setBackendVersion] = useState('')  // from /health; only shown when it differs from this build
+  const [backendVersion, setBackendVersion] = useState('')  // from /health; the colophon notes it only when it differs from this build
   useEffect(() => {
     let on = true
     fetch('/health').then((r) => r.ok ? r.json() : null).then((h) => { if (on && h?.version) setBackendVersion(String(h.version)) }).catch(() => {})
@@ -309,7 +309,6 @@ export default function Settings() {
   const SW = (label, help, offHelp, key, o = {}) => ({ kind: 'switch', label, help, offHelp, key, ...o })
   const E = (label, help, key, o = {}) => ({ kind: 'edit', label, help, key, ...o })
   const BT = (label, help, btnLabel, act, o = {}) => ({ kind: 'button', label, help, btnLabel, act, ...o })
-  const ST = (label, help, text, o = {}) => ({ kind: 'static', label, help, text, ...o })
   // A value the app writes and the user may only look at (and clear); `key` is redacted by GET /settings.
   // The row can only show "set / not set" plus remaining validity, from `sinceKey` + `days`.
   const RO = (label, help, key, o = {}) => ({ kind: 'readonly', label, help, key, ...o })
@@ -487,12 +486,10 @@ export default function Settings() {
         B('Proxy URL', 'Used by scrapes that hit rate limits or geo-blocks. Empty = direct.', 'proxy_url', { mono: true, w: '340px', placeholder: 'socks5://127.0.0.1:9050' }),
         { kind: 'apikey', label: 'Dashboard API key', help: 'Saving refreshes the session cookie so iframes keep working.' },
         BT('DB backup', 'DB snapshot now, outside the cron.', 'Run backup', () => api.post('/db/backup')),
-        ST('Version', 'This dashboard build. The extension shows its own version in its popup.',
-          backendVersion && backendVersion !== __APP_VERSION__ ? `${__APP_VERSION__} · backend ${backendVersion}` : __APP_VERSION__),
       ]],
     ]
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [S, resumes, personaAvailable, trig, li, backendVersion])
+  }, [S, resumes, personaAvailable, trig, li])
 
   const q = query.trim().toLowerCase()
   const matches = (sec) => !q || sec[2].toLowerCase().includes(q) ||
@@ -595,7 +592,8 @@ export default function Settings() {
             <Helper style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '34px 0 6px' }}>
               <span style={{ fontStyle: 'italic' }}>
                 {/* ui: keep — serif 12 wordmark, below the 18/19 Heading scale */}
-                <span style={{ color: 'var(--muted)', fontFamily: 'var(--serif)', fontSize: 12, fontStyle: 'normal' }}>JobNavigator</span>&nbsp;v.2.0
+                <span style={{ color: 'var(--muted)', fontFamily: 'var(--serif)', fontSize: 12, fontStyle: 'normal' }}>JobNavigator</span>&nbsp;v{__APP_VERSION__}
+                {backendVersion && backendVersion !== __APP_VERSION__ && <> · backend v{backendVersion}</>}
               </span>
               <span style={{ marginLeft: 'auto', display: 'flex', gap: 14 }}>
                 {/* These use Link (not hand-written anchors) but keep the colophon's ink/size, not the link scale —
@@ -604,6 +602,8 @@ export default function Settings() {
                   style={{ color: 'var(--muted)', fontSize: 'inherit', lineHeight: 'inherit', fontWeight: 400, textDecoration: 'none' }}>API docs ↗</Link>
                 <Link href="https://github.com/vesaias/JobNavigator" target="_blank" rel="noopener noreferrer"
                   style={{ color: 'var(--muted)', fontSize: 'inherit', lineHeight: 'inherit', fontWeight: 400, textDecoration: 'none' }}>github.com/vesaias/JobNavigator ↗</Link>
+                <Link href="https://viktoresadze.com" target="_blank" rel="noopener noreferrer"
+                  style={{ color: 'var(--muted)', fontSize: 'inherit', lineHeight: 'inherit', fontWeight: 400, textDecoration: 'none' }}>viktoresadze.com ↗</Link>
               </span>
             </Helper>
           </div>
@@ -724,8 +724,6 @@ function Row({ r, ctx }) {
         )
       case 'apikey':
         return <ApiKeyRow value={val('dashboard_api_key')} save={save} flash={flash} />
-      case 'static':
-        return <Mono style={{ fontSize: 12 }}>{r.text}</Mono>
       case 'readonly': {
         const set = !!val(r.key)
         if (!set) return <Helper style={{ flex: 1, minWidth: 0 }}>{r.emptyText || 'Not set'}</Helper>
