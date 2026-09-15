@@ -85,7 +85,7 @@ const SOURCE_LABELS = {
 const srcLabel = (s) => SOURCE_LABELS[s] || s || ''
 const STATUS_OPTS = [['new', 'New'], ['saved', 'Saved'], ['applied', 'Applied'], ['skip', 'Skip'], ['ignored', 'Ignored']]
 const SORT_OPTS = [['score', 'Top score'], ['date', 'Newest first'], ['salary', 'Salary, high to low'], ['company', 'Company A–Z']]
-const DEFAULTS = { status: [], company: [], source: [], h1b_verdict: [], location: [], arrangement: [], min_score: '', min_salary: '', max_salary: '' }
+const DEFAULTS = { status: ['new'], company: [], source: [], h1b_verdict: [], location: [], arrangement: [], min_score: '', min_salary: '', max_salary: '' }
 
 // small dropdown shell (trigger pill + panel + backdrop). Flips to right-align
 // when the panel would overflow the viewport's right edge.
@@ -282,7 +282,7 @@ export default function V2JobFeed() {
   // OPEN set (new + saved); skipped/applied/ignored need an explicit Status filter.
   const facetParams = useMemo(() => {
     const p = {}
-    p.status = filters.status.length ? filters.status.join(',') : 'new,saved'
+    if (filters.status.length) p.status = filters.status.join(',')   // nothing picked = every status; the first-run default is New (DEFAULTS)
     if (filters.company.length) p.company = filters.company.join(',')
     if (filters.source.length) p.source = filters.source.join(',')
     if (filters.h1b_verdict.length) p.h1b_verdict = filters.h1b_verdict.join(',')
