@@ -1262,16 +1262,20 @@ export default function V2JobFeed() {
                           {j.location && <span style={{ flex: '0 0 auto', color: 'var(--line)' }}>|</span>}
                           {j.location && <span title={j.location} style={{ flex: '1 1 0%', minWidth: 40, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{j.location}</span>}
                         </div>
-                        <div className="v2-rowink" style={{ display: 'flex', alignItems: 'center', gap: 9, fontSize: 11, lineHeight: '13px', fontWeight: 450, minWidth: 0, marginTop: 2 }}>
+                        {/* one line, never wrapped: salary · arrangement · H-1B · age; the verdict shrinks away first
+                            (it is a facet and in the detail pane), the age at the end is always whole */}
+                        <div className="v2-rowink" style={{ display: 'flex', alignItems: 'center', gap: 9, fontSize: 11, lineHeight: '13px', fontWeight: 450, minWidth: 0, marginTop: 2, whiteSpace: 'nowrap', overflow: 'hidden' }}>
                           {fmtSalary(j.salary_min, j.salary_max) && <><span style={{ flex: '0 1 auto', minWidth: 0, maxWidth: 170, fontFamily: 'var(--numeral-face)', color: 'var(--text-2)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{fmtSalary(j.salary_min, j.salary_max)}</span><span style={{ color: 'var(--line)' }}>·</span></>}
                           {arrangementsOf(j).map(([key, label, colour]) => (
                             <React.Fragment key={key}>
-                              <span style={{ letterSpacing: '.04em', color: colour }}>{label}</span>
-                              <span style={{ color: 'var(--line)' }}>·</span>
+                              <span style={{ flex: '0 0 auto', letterSpacing: '.04em', color: colour }}>{label}</span>
+                              <span style={{ flex: '0 0 auto', color: 'var(--line)' }}>·</span>
                             </React.Fragment>
                           ))}
-                          {visa && j.h1b_verdict !== 'unknown' && <><span style={{ letterSpacing: '.04em', color: visa.c }}>{visa.label}</span><span style={{ color: 'var(--line)' }}>·</span></>}
-                          <span style={{ color: 'var(--muted)' }}>{timeAgo(j.discovered_at)}</span>
+                          {/* the verdict is the segment that gives way: it shrinks (flex-shrink 2, ahead of the salary) to an
+                              ellipsis and then to nothing, so the age at the end always stays whole */}
+                          {visa && j.h1b_verdict !== 'unknown' && <><span style={{ flex: '0 2 auto', minWidth: 0, letterSpacing: '.04em', color: visa.c, overflow: 'hidden', textOverflow: 'ellipsis' }} title={visa.label}>{visa.label}</span><span style={{ flex: '0 0 auto', color: 'var(--line)' }}>·</span></>}
+                          <span style={{ flex: '0 0 auto', color: 'var(--muted)' }} title={timeAgo(j.discovered_at)}>{timeAgo(j.discovered_at).replace(/ ago$/, '')}</span>
                         </div>
                       </div>
                     </div>
