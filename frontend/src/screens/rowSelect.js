@@ -31,16 +31,24 @@ export const clickMods = (e) => ({ pick: !!(e && (e.metaKey || e.ctrlKey)), rang
  * @param anchor   the last picked index, or null
  * @param pick     ⌘/Ctrl was held
  * @param range    ⇧ was held
+ * @param focused  the index of the row open in the detail pane, or null
  * @returns {{checked: Set, anchor: number|null, focus: boolean}} — `focus` means
  *          the click was a plain one and the row should open in the detail pane.
  */
-export function clickSelection({ checked, ids, index, anchor, pick, range }) {
-  const cur = checked instanceof Set ? checked : new Set(checked || [])
+export function clickSelection({ checked, ids, index, anchor, pick, range, focused = null }) {
+  let cur = checked instanceof Set ? checked : new Set(checked || [])
   const list = ids || []
   const id = list[index]
   // A modified click on a row the list does not have is not a click on "nothing
   // selected" — it is a no-op. Only a PLAIN click clears.
   if ((pick || range) && id === undefined) return { checked: cur, anchor, focus: false }
+  // The open row is the implicit first pick: with nothing selected yet, a ⌘ or ⇧
+  // click on another row selects both (and a range runs from the open row).
+  if ((pick || range) && cur.size === 0 && focused != null && focused >= 0
+      && focused < list.length && focused !== index) {
+    cur = new Set([list[focused]])
+    anchor = focused
+  }
   if (pick) {
     const next = new Set(cur)
     if (next.has(id)) next.delete(id); else next.add(id)

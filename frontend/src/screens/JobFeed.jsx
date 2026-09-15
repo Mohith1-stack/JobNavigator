@@ -6,7 +6,7 @@ import ConfirmDialog from '../ConfirmDialog'
 import { useEscape, useSettled, useSingleOpen, useWarm, NBSP, DASH } from '../hooks'
 import { Button, Card, Check as UICheck, CheckGlyph, CopyGlyph, CrossGlyph, FooterRow, GlyphBadge, Heading, HeaderRow, Helper, IconButton, Input, kb, Label, Link, Menu, MenuItem, Meter, ModalPanel, NavLink, PageTitle, Pill, Row, Rule, ScoreRing, SearchInput, SectionHead, Segmented, Spinner, TableHead, TableRow } from '../ui'
 import { ANALYZE, SCORE_RESUME, TAILOR, activityText, feedActivity, flightDetail, flightTypes, ghostTabs, tabBusy, tabBusyHint, tailorMarkTitle } from './feedActivity'
-import { PICK_KEY } from './rowSelect'
+import { PICK_KEY, clickMods, clickSelection } from './rowSelect'
 
 const FILTERS_KEY = 'v2_feed_filters'
 const SORT_KEY = 'v2_feed_sort'
@@ -674,8 +674,10 @@ export default function V2JobFeed() {
 
   // selection
   const rowClick = (e, i, job) => {
-    if (e.metaKey || e.ctrlKey) { setChecked((p) => { const n = new Set(p); n.has(job.id) ? n.delete(job.id) : n.add(job.id); return n }); lastIdx.current = i; return }
-    if (e.shiftKey && lastIdx.current != null) { const [a, b] = [lastIdx.current, i].sort((x, y) => x - y); setChecked((p) => { const n = new Set(p); for (let k = a; k <= b; k++) n.add(jobs[k].id); return n }); return }
+    const { pick, range } = clickMods(e)
+    const r = clickSelection({ checked, ids: jobs.map((j) => j.id), index: i, anchor: lastIdx.current, pick, range, focused: sel })
+    lastIdx.current = r.anchor
+    if (!r.focus) { setChecked(r.checked); return }
     focusAt(i)
   }
   // restore a whole batch: rows can have had different prior statuses, so group them and
@@ -1164,19 +1166,19 @@ export default function V2JobFeed() {
 
           {checked.size > 0 && (
             // ui: keep — floating bulk bar is a pill-shaped *bar* on --rail with --shadow-pop; no primitive owns a bar
-            <div style={{ position: 'absolute', left: '50%', bottom: 14, transform: 'translateX(-50%)', zIndex: 25, display: 'flex', alignItems: 'center', gap: 6, padding: '7px 8px 7px 14px', background: 'var(--rail)', borderRadius: 'var(--radius-control)', boxShadow: 'var(--shadow-pop)' }}>
+            <div className="v2-bulkbar" style={{ position: 'absolute', left: '50%', bottom: 14, transform: 'translateX(-50%)', zIndex: 25, display: 'flex', alignItems: 'center', gap: 6, padding: '7px 8px 7px 14px', background: 'var(--rail)', borderRadius: 'var(--radius-control)', boxShadow: 'var(--shadow-pop)' }}>
               <span style={{ fontSize: 12, color: 'var(--rail-ink)', fontWeight: 600, whiteSpace: 'nowrap' }}>{checked.size} selected</span>
-              <div style={{ width: 1, height: 16, background: 'var(--on-rail-sep)', margin: '0 3px' }} />
+              <div className="v2-bulksep" style={{ width: 1, height: 16, background: 'var(--on-rail-sep)', margin: '0 3px' }} />
               {/* the one filled control on the bulk bar: --btn-on-rail-shadow is
                   --btn-shadow everywhere but a theme whose accent IS its rail colour,
                   which prepends an --on-rail-line ring so the button has an edge. */}
               <Button size="xs" onClick={() => bulkStatus('saved')} style={{ boxShadow: 'var(--btn-on-rail-shadow)' }}>Save</Button>
               {/* ui: keep — RAIL_BTN controls (--rail-ink on --on-rail-line); the Pill tokens are for light surfaces */}
-              <div onClick={() => bulkStatus('skip')} className="v2-bdc v2-ctl" style={RAIL_BTN}>Skip</div>
+              <div onClick={() => bulkStatus('skip')} className="v2-onrail v2-ctl" style={RAIL_BTN}>Skip</div>
               {/* ui: keep — RAIL_BTN, as above */}
-              <div onClick={bulkScore} className="v2-bdc v2-ctl" style={RAIL_BTN}>Score</div>
-              <div onClick={() => setPicker({ mode: 'tailor', jobs: jobs.filter((j) => checked.has(j.id)) })} style={{ ...RAIL_BTN, gap: 5 }}><span style={{ color: 'var(--rail-accent)' }}>✦</span>Tailor</div>
-              <div onClick={() => setChecked(new Set())} style={{ width: 27, height: 27, borderRadius: 'var(--radius-control)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 12, color: 'var(--on-rail-dim)', cursor: 'pointer' }}>✕</div>
+              <div onClick={bulkScore} className="v2-onrail v2-ctl" style={RAIL_BTN}>Score</div>
+              <div onClick={() => setPicker({ mode: 'tailor', jobs: jobs.filter((j) => checked.has(j.id)) })} className="v2-onrail v2-ctl" style={{ ...RAIL_BTN, gap: 5 }}><span style={{ color: 'var(--rail-accent)' }}>✦</span>Tailor</div>
+              <div onClick={() => setChecked(new Set())} className="v2-onrail" style={{ width: 27, height: 27, borderRadius: 'var(--radius-control)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 12, color: 'var(--on-rail-dim)', cursor: 'pointer' }}>✕</div>
             </div>
           )}
 

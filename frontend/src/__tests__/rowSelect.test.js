@@ -95,3 +95,25 @@ describe('PICK_KEY', () => {
     expect(['⌘', 'Ctrl']).toContain(PICK_KEY)
   })
 })
+
+
+describe('the open row joins a first modified click', () => {
+  const ids = ['a', 'b', 'c', 'd']
+  it('⌘-click with the detail open selects the open row too', () => {
+    const r = clickSelection({ checked: new Set(), ids, index: 2, anchor: null, pick: true, range: false, focused: 0 })
+    expect([...r.checked].sort()).toEqual(['a', 'c'])
+    expect(r.anchor).toBe(2)
+  })
+  it('⇧-click with the detail open ranges from the open row', () => {
+    const r = clickSelection({ checked: new Set(), ids, index: 3, anchor: null, pick: false, range: true, focused: 1 })
+    expect([...r.checked].sort()).toEqual(['b', 'c', 'd'])
+  })
+  it('⌘-click on the open row itself just picks it', () => {
+    const r = clickSelection({ checked: new Set(), ids, index: 1, anchor: null, pick: true, range: false, focused: 1 })
+    expect([...r.checked]).toEqual(['b'])
+  })
+  it('an existing selection is left alone', () => {
+    const r = clickSelection({ checked: new Set(['d']), ids, index: 2, anchor: 3, pick: true, range: false, focused: 0 })
+    expect([...r.checked].sort()).toEqual(['c', 'd'])
+  })
+})
