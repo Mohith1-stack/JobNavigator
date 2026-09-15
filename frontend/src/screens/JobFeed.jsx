@@ -1106,7 +1106,7 @@ export default function V2JobFeed() {
             return (
               <Pill on={statusActive} onClick={t} ariaExpanded={menu === 'status'} ariaHaspopup="menu">
                 Status · {filters.status.map((s) => STATUS_OPTS.find((o) => o[0] === s)?.[1]).join(', ') || 'Any'}
-                {statusActive ? <span onClick={(e) => { e.stopPropagation(); setF({ status: DEFAULTS.status }) }} style={{ opacity: 0.6 }}>✕</span> : <span style={{ fontSize: 10, opacity: 0.6 }}>▾</span>}
+                {statusActive ? <span onClick={(e) => { e.stopPropagation(); setF({ status: [] }) }} style={{ opacity: 0.6 }}>✕</span> : <span style={{ fontSize: 10, opacity: 0.6 }}>▾</span>}
               </Pill>
             )
           }}>
