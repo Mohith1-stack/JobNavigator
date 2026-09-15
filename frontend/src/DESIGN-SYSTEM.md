@@ -51,6 +51,7 @@ One block per **theme** then overrides palette and/or semantic names under `.jn-
 - **Line-heights are whole pixels** so 1px borders never blur on fractional row heights; fixed-height flex controls carry `v2-ctl`.
 - **Disabled primary buttons are `--line` on `--muted`.** **Green fill (`--change-bg`) marks only text changed by tailoring** — a generic set-back surface is `--recessed`.
 - **Feedback goes through `useToasts`**: progress/success auto-dismiss at 4s, undo at 5s, error never auto-dismisses. **Destructive actions use `ConfirmDialog`**, never `window.confirm`.
+- **The bulk bar is one control set on two screens.** A list with a bulk selection — the Feed, and Applications — draws the same floating pill on `--rail` with `--shadow-pop`: "N selected", an `--on-rail-sep` hairline, then `RAIL_BTN` controls (`--rail-ink` on an `--on-rail-line` hairline, because `Button`/`Pill` paint for light surfaces) and a ✕. A picked row takes the `--row-selected` wash plus a ✓ `GlyphBadge` at its leading element (the Feed's score ring; on Applications, which has none, the row's own top-left corner), and the gestures — ⌘/Ctrl picks, ⇧ ranges from the last anchor in painted order — are `screens/rowSelect.js`, pure and unit-tested.
 - **After creating or deleting rows**, dispatch `window.dispatchEvent(new CustomEvent('jn:counts-changed'))` to refresh the rail's badge counts.
 - **Long-running actions poll `/api/monitor/active`** by scope key so a spinner survives navigating away and back.
 
