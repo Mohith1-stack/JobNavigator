@@ -33,10 +33,17 @@ Everything that scores, tailors or writes needs a language model. Choose one pri
 | OpenAI | an OpenAI API key | per token |
 | OpenRouter | an OpenRouter key; hundreds of models, live search | per token |
 | Ollama | Ollama running on the host with a pulled model, no key | free |
-| Claude Code | a Claude Pro/Max subscription: put `CLAUDE_CODE_OAUTH_TOKEN` (from `claude setup-token`) in `.env` | subscription |
-| Codex CLI | a ChatGPT subscription: run `docker compose exec backend codex login --device-auth` once | subscription |
+| Claude Code | a Claude Pro/Max subscription, see below | subscription |
+| Codex CLI | a ChatGPT subscription, see below | subscription |
 
 Pick the model from the list (or search the provider's catalog under Model catalog). Save.
+
+**Subscriptions instead of API keys.** Both CLIs are installed in the backend image, so you log in through the container:
+
+- Codex CLI: `docker compose exec backend codex login --device-auth`, follow the URL, then `docker compose exec backend codex login status` to confirm. The login persists in the `codex_auth` Docker volume.
+- Claude Code: `docker compose exec backend claude setup-token`, follow the URL and paste the code; it prints a long-lived token. Put it in `.env` as `CLAUDE_CODE_OAUTH_TOKEN=...` and run `docker compose up -d backend` so the container picks it up.
+
+When a plan limit is hit, the call fails over to the fallback provider instead of retrying.
 
 Also on this tab:
 
