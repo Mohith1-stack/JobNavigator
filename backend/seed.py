@@ -42,7 +42,7 @@ DEFAULT_SETTINGS = {
     "scoring_rubric": ("Score each resume using these criteria (each 0-20, sum to 0-100):\n1. SKILLS MATCH (weight: 20): How many required technical skills/tools does the candidate have?\n2. EXPERIENCE LEVEL (weight: 20): Does seniority/years match? (entry-level resume for senior role = low)\n3. DOMAIN FIT (weight: 20): Has the candidate worked in the same industry/domain?\n4. ROLE ALIGNMENT (weight: 20): Does the candidate's career trajectory match this role type?\n5. REQUIREMENTS MET (weight: 20): Does the candidate meet stated requirements (education, certs, clearance)?\n\nUse the FULL 0-100 range. 90+ = perfect match. 50-70 = decent with gaps. Below 30 = poor match.\nAvoid clustering scores — differentiate meaningfully between resumes and jobs.", "Editable resume scoring rubric"),
     "scoring_output_light": ('Return ONLY this JSON:\n{\n  "scores": {CV_NAMES_HERE: 0-100},\n  "best_cv": "CV_NAME"\n}', "Light scoring output schema"),
     "scoring_output_full": ('Return ONLY this JSON:\n{\n  "scores": {CV_NAMES_HERE: 0-100},\n  "best_cv": "CV_NAME",\n  "breakdown": {"skills": 0-20, "experience": 0-20, "domain": 0-20, "role": 0-20, "requirements": 0-20},\n  "summary": "2-3 sentence assessment of candidate-job fit",\n  "requirement_mapping": [\n    {"requirement": "JD requirement text", "cv_match": "matching CV line or null", "matched": true/false, "severity": "required or preferred"}\n  ],\n  "keyword_coverage_pct": 0-100,\n  "matched_keywords": ["keyword1", "keyword2"],\n  "missing_keywords": ["keyword3", "keyword4"],\n  "hard_blockers": ["blocker if any"],\n  "ats_tip": "one actionable ATS optimization suggestion"\n}', "Full scoring output schema with keyword analysis"),
-    "llm_provider": ("claude_api", "LLM provider: claude_api, claude_code, codex_cli, openai, ollama, lmstudio, openrouter"),
+    "llm_provider": ("claude_api", "LLM provider: claude_api, claude_code, codex_cli, antigravity_cli, openai, ollama, lmstudio, openrouter"),
     "llm_model": ("claude-sonnet-5", "LLM model name"),
     "llm_api_key": ("", "API key for API-backed providers (not needed for subscription CLIs or Ollama)"),
     "llm_fallback_provider": ("", "Fallback LLM provider (empty = no fallback)"),
@@ -72,6 +72,18 @@ DEFAULT_SETTINGS = {
         {"provider": "codex_cli", "model": "gpt-5.6-terra"},
         {"provider": "codex_cli", "model": "gpt-5.6-luna"},
         {"provider": "codex_cli", "model": "gpt-5.5"},
+        # Antigravity CLI — Google subscription. Slugs carry the reasoning effort;
+        # `agy models` is the live catalog and it also serves non-Google models.
+        {"provider": "antigravity_cli", "model": "gemini-3.8-flash-high"},
+        {"provider": "antigravity_cli", "model": "gemini-3.8-flash-medium"},
+        {"provider": "antigravity_cli", "model": "gemini-3.8-flash-low"},
+        {"provider": "antigravity_cli", "model": "gemini-3.7-flash-medium"},
+        {"provider": "antigravity_cli", "model": "gemini-3.6-flash-medium"},
+        {"provider": "antigravity_cli", "model": "gemini-3.1-pro-high"},
+        {"provider": "antigravity_cli", "model": "gemini-3.1-pro-low"},
+        {"provider": "antigravity_cli", "model": "claude-sonnet-4-6"},
+        {"provider": "antigravity_cli", "model": "claude-opus-4-6-thinking"},
+        {"provider": "antigravity_cli", "model": "gpt-oss-120b-medium"},
         {"provider": "openai", "model": "gpt-5.4"},
         {"provider": "openai", "model": "gpt-5.4-mini"},
         {"provider": "openai", "model": "gpt-5.4-nano"},
@@ -361,7 +373,7 @@ INT_SETTING_KEYS = _int_setting_keys()
 
 # Providers the LLM dispatcher knows how to call. "" means "inherit the primary
 # llm_provider", which every per-feature prefix does.
-_LLM_PROVIDERS = {"", "claude_api", "claude_code", "codex_cli", "openai", "ollama", "lmstudio", "openrouter"}
+_LLM_PROVIDERS = {"", "claude_api", "claude_code", "codex_cli", "antigravity_cli", "openai", "ollama", "lmstudio", "openrouter"}
 
 # Depth words. `tailor_auto_quick_score` also honours legacy boolean spellings
 # (see routes_resumes._resolve_chain_score_depth).

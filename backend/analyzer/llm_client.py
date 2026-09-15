@@ -242,6 +242,8 @@ async def _dispatch(provider: str, model: str, api_key: str,
         return await _call_claude_code(combined, system, model, max_tokens)
     elif provider == "codex_cli":
         return await _call_codex_cli(combined, system, model, max_tokens)
+    elif provider == "antigravity_cli":
+        return await _call_antigravity_cli(combined, system, model, max_tokens)
     elif provider == "openai":
         return await _call_openai(combined, system, model, api_key, max_tokens)
     elif provider == "openrouter":
@@ -342,13 +344,19 @@ CLI_TIMEOUT = 300   # seconds one subscription-CLI completion may take before it
 _codex_gate = asyncio.Semaphore(2)
 _CODEX_LOGIN_HINT = "run `docker compose exec backend codex login --device-auth`"
 _QUOTA_RE = re.compile(r"usage limit|rate limit|quota|too many requests|\b429\b", re.I)
+# agy refreshes one shared OAuth token file, so hold the same limit codex gets.
+_agy_gate = asyncio.Semaphore(2)
+_AGY_LOGIN_HINT = "run `docker compose exec -it backend agy` and sign in"
+_AGY_AUTH_RE = re.compile(r"authentication (required|failed)|not logged in|sign in", re.I)
+_AGY_STATE = "~/.gemini/antigravity-cli"
 
 
-async def _run_cli(cmd: list[str], stdin: bytes, env: dict | None = None, timeout: float = CLI_TIMEOUT):
+async def _run_cli(cmd: list[str], stdin: bytes, env: dict | None = None, timeout: float = CLI_TIMEOUT,
+                   cwd: str | None = None):
     """Run a CLI to completion with a hard timeout; returns (rc, stdout, stderr)."""
     process = await asyncio.create_subprocess_exec(
         *cmd, stdin=asyncio.subprocess.PIPE, stdout=asyncio.subprocess.PIPE,
-        stderr=asyncio.subprocess.PIPE, env=env,
+        stderr=asyncio.subprocess.PIPE, env=env, cwd=cwd,
     )
     try:
         stdout, stderr = await asyncio.wait_for(process.communicate(input=stdin), timeout)
@@ -427,6 +435,86 @@ async def _call_codex_cli(prompt: str, system: str, model: str, max_tokens: int)
     if not text:
         raise RuntimeError("codex exec completed without an agent response")
     return {"text": text.strip(), "usage": usage}
+
+
+def _agy_discard(conversation_id: str) -> None:
+    """Delete the per-call transcript agy writes. It holds the whole prompt — the resume text —
+    and nothing reads it back, so it is disk growth and a copy of user data we do not want."""
+    import glob
+    import os
+    import shutil
+    home = os.path.expanduser(_AGY_STATE)
+    for path in (*glob.glob(f"{home}/conversations/{conversation_id}.db*"),
+                 f"{home}/presence/{conversation_id}.lock",
+                 f"{home}/annotations/{conversation_id}.pbtxt",
+                 f"{home}/brain/{conversation_id}"):
+        try:
+            shutil.rmtree(path) if os.path.isdir(path) else os.remove(path)
+        except OSError:
+            pass   # a leftover file is untidy, never a reason to fail a scored job
+
+
+async def _call_antigravity_cli(prompt: str, system: str, model: str, max_tokens: int) -> dict:
+    """Call Antigravity CLI on its Google subscription. The prompt rides on stdin as one NDJSON
+    line because `-p` reads argv and argv caps near 128 KB. `max_tokens` is ignored: the CLI
+    exposes no output cap. Tool use is blocked by ~/.gemini/antigravity-cli/settings.json, which
+    the image ships — `--sandbox` restricts the terminal only, never the file tools."""
+    import json as _json
+    import os
+    import tempfile
+
+    # like ANTHROPIC_API_KEY for claude_code: the plan pays, never a key that happens to be set
+    env = {k: v for k, v in os.environ.items()
+           if k not in ("GEMINI_API_KEY", "GOOGLE_API_KEY",
+                        "GOOGLE_APPLICATION_CREDENTIALS", "AGY_ADC_AUTH")}
+    message = _json.dumps({"event": "user",
+                           "message": {"role": "user", "content": f"{system}\n\n{prompt}"}})
+
+    async with _agy_gate:
+        with tempfile.TemporaryDirectory(prefix="jobnavigator-agy-") as workdir:
+            # `-p` always swallows the next token, so it goes last with an attached empty value.
+            cmd = ["agy", "--input-format", "stream-json", "--output-format", "stream-json",
+                   "--print-timeout", f"{int(CLI_TIMEOUT)}s"]
+            if model:
+                cmd.extend(["--model", model])
+            cmd.append("-p=")
+            rc, stdout, stderr = await _run_cli(cmd, (message + "\n").encode(), env=env, cwd=workdir)
+
+    result = {}
+    for line in stdout.decode(errors="replace").splitlines():
+        try:
+            event = _json.loads(line)
+        except _json.JSONDecodeError:
+            continue
+        if event.get("event") == "result":
+            result = event.get("result") or {}
+
+    conversation_id = str(result.get("conversation_id") or "")
+    if conversation_id:
+        _agy_discard(conversation_id)
+
+    if result.get("status") != "SUCCESS" or rc != 0:
+        err_lines = stderr.decode(errors="replace").strip().splitlines()
+        reason = str(result.get("error") or "") or (err_lines[-1] if err_lines else "no output")
+        if _AGY_AUTH_RE.search(reason):
+            raise NonRetryableLLMError(f"Antigravity CLI is not logged in — {_AGY_LOGIN_HINT} ({reason})")
+        if _QUOTA_RE.search(reason):
+            raise NonRetryableLLMError(f"Antigravity usage limit reached: {reason}")
+        raise RuntimeError(f"agy failed (rc={rc}): {reason}")
+
+    text = str(result.get("response") or "").strip()
+    if not text:
+        raise RuntimeError("agy completed without a response")
+    usage = result.get("usage") or {}
+    return {
+        "text": text,
+        "usage": {
+            "input_tokens": usage.get("input_tokens", 0) or 0,
+            "output_tokens": usage.get("output_tokens", 0) or 0,
+            "cache_read_tokens": usage.get("cache_read_tokens", 0) or 0,
+            "cache_write_tokens": 0,
+        },
+    }
 
 
 async def _call_openai(prompt: str, system: str, model: str, api_key: str, max_tokens: int,
