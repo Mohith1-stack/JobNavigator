@@ -134,6 +134,8 @@ docker compose exec backend codex login status
 
 Then pick **Codex CLI (ChatGPT Subscription)** in Settings › AI. The login lives in the `codex_auth` volume (about 100 MB with Codex's own state); no API key needed. A plan limit fails over to the fallback provider without retrying.
 
+A longer walkthrough, screen by screen, is in [docs/GETTING-STARTED.md](docs/GETTING-STARTED.md).
+
 **First steps:**
 1. Settings › AI — provider and key
 2. Résumés — create a base résumé or import a PDF
