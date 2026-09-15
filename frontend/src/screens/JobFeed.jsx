@@ -1102,7 +1102,7 @@ export default function V2JobFeed() {
         </Drop>
         <Drop width={170} active open={menu === 'status'} onToggle={() => setMenu(menu === 'status' ? null : 'status')}
           trigger={(t) => {
-            const statusActive = !(filters.status.length === DEFAULTS.status.length && DEFAULTS.status.every((s) => filters.status.includes(s)))
+            const statusActive = filters.status.length > 0   // like every other filter: a pick is on (green), nothing picked reads "Any" in the plain pill
             return (
               <Pill on={statusActive} onClick={t} ariaExpanded={menu === 'status'} ariaHaspopup="menu">
                 Status · {filters.status.map((s) => STATUS_OPTS.find((o) => o[0] === s)?.[1]).join(', ') || 'Any'}
