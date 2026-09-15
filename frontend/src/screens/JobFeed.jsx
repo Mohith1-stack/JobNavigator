@@ -6,6 +6,7 @@ import ConfirmDialog from '../ConfirmDialog'
 import { useEscape, useSettled, useSingleOpen, useWarm, NBSP, DASH } from '../hooks'
 import { Button, Card, Check as UICheck, CheckGlyph, CopyGlyph, CrossGlyph, FooterRow, GlyphBadge, Heading, HeaderRow, Helper, IconButton, Input, kb, Label, Link, Menu, MenuItem, Meter, ModalPanel, NavLink, PageTitle, Pill, Row, Rule, ScoreRing, SearchInput, SectionHead, Segmented, Spinner, TableHead, TableRow } from '../ui'
 import { ANALYZE, SCORE_RESUME, TAILOR, activityText, feedActivity, flightDetail, flightTypes, ghostTabs, tabBusy, tabBusyHint, tailorMarkTitle } from './feedActivity'
+import { PICK_KEY } from './rowSelect'
 
 const FILTERS_KEY = 'v2_feed_filters'
 const SORT_KEY = 'v2_feed_sort'
@@ -131,9 +132,8 @@ function Check({ on, label, count, onClick }) {
   )
 }
 
-// pick modifier: ⌘ on macOS, Ctrl elsewhere (matches rowClick's metaKey||ctrlKey)
-const IS_MAC = typeof navigator !== 'undefined' && /Mac|iPhone|iPad|iPod/i.test(navigator.platform || navigator.userAgent || '')
-const PICK_KEY = IS_MAC ? '⌘' : 'Ctrl'
+// pick modifier: ⌘ on macOS, Ctrl elsewhere (matches rowClick's metaKey||ctrlKey).
+// Shared with the Applications list, which carries the same selection gestures.
 const SHORTCUTS = [['j / f / ↓', 'Next job'], ['k / g / ↑', 'Previous job'], ['s', 'Save / unsave'], ['x', 'Skip'], ['a', 'Mark applied'], ['e / o', 'Open posting'], ['r', 'Rescore'], ['t', 'Tailor résumé'], ['c', 'Cover letter'], ['Esc', 'Close menus'], [`${PICK_KEY}-click`, 'Select'], ['Shift-click', 'Select range']]
 
 // ── component ────────────────────────────────────────────────────────────
@@ -358,10 +358,19 @@ export default function V2JobFeed() {
     return p
   }, [facetParams, sortBy])
 
+  // Every list load belongs to a generation; a filter or sort change starts a new one.
+  // A response from an older generation is dropped, so a slow unfiltered page cannot
+  // overwrite a faster filtered one, and a page requested just before a filter change
+  // cannot be appended under the new filter (R5: company filter + scroll showed other companies).
+  const loadGenRef = useRef(0)
+  const loadingMoreRef = useRef(false)
   const fetchJobs = useCallback(async () => {
+    const gen = ++loadGenRef.current
+    loadingMoreRef.current = false   // an older page load no longer owns the list
     setLoading(true)
     try {
       const { data } = await api.get('/jobs', { params: buildParams(0) })
+      if (gen !== loadGenRef.current) return
       const n = (data.jobs || []).length
       setJobs(data.jobs || [])
       setTotal(data.total || 0)
@@ -379,11 +388,11 @@ export default function V2JobFeed() {
   useEffect(() => { fetchJobs() }, [fetchJobs])
 
   // append next page (infinite scroll + refill after triage drains the list)
-  const loadingMoreRef = useRef(false)
   const offsetRef = useRef(offset); useEffect(() => { offsetRef.current = offset }, [offset])
   const hasMoreRef = useRef(hasMore); useEffect(() => { hasMoreRef.current = hasMore }, [hasMore])
   const loadMore = useCallback(async () => {
     if (loadingMoreRef.current || !hasMoreRef.current) return
+    const gen = loadGenRef.current
     loadingMoreRef.current = true; setLoadingMore(true)
     try {
       // The backend orders by ONE column with no tiebreaker (routes_jobs.py:122-129),
@@ -400,6 +409,7 @@ export default function V2JobFeed() {
       for (let page = 0; page < 6 && added === 0 && more; page += 1) {
         // eslint-disable-next-line no-await-in-loop
         const { data } = await api.get('/jobs', { params: buildParams(off) })
+        if (gen !== loadGenRef.current) return   // the filter changed while this page was in flight
         const fetched = data.jobs || []
         const grand = data.total || 0
         setTotal(grand)
@@ -412,7 +422,7 @@ export default function V2JobFeed() {
       setOffset(off)
       setHasMore(more)
     } catch (e) { console.error('load more failed', e) }
-    loadingMoreRef.current = false; setLoadingMore(false)
+    finally { if (gen === loadGenRef.current) { loadingMoreRef.current = false }; setLoadingMore(false) }
   }, [buildParams])
   const onListScroll = useCallback((e) => {
     const el = e.currentTarget
