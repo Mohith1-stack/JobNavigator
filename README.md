@@ -122,27 +122,22 @@ cp .env.example .env
 
 docker compose up --build -d
 ```
+Open `http://localhost`. On first run sign in with a blank key, then set one in Settings › Advanced.
 
-Open `http://localhost`. On first run sign in with a blank key, then set one in Settings › Advanced. The previous interface is at `/classic`.
-
-To use a ChatGPT subscription through Codex CLI, authenticate once after the containers start:
-
-```bash
-docker compose exec backend codex login --device-auth
-docker compose exec backend codex login status
-```
-
-Then pick **Codex CLI (ChatGPT Subscription)** in Settings › AI. The login lives in the `codex_auth` volume (about 100 MB with Codex's own state); no API key needed. A plan limit fails over to the fallback provider without retrying.
-
-To use a Claude Pro/Max subscription through Claude Code, mint a long-lived token (the CLI is in the image, no host install needed), put it in `.env` and reload the backend:
-
+To use a Claude subscription through Claude Code, mint a long-lived token, put it in `.env` and reload the backend:
 ```bash
 docker compose exec backend claude setup-token      # opens a login URL, prints the token
 # .env: CLAUDE_CODE_OAUTH_TOKEN=<the token>
 docker compose up -d backend
 ```
-
 Then pick **Claude Code** in Settings › AI.
+
+To use a ChatGPT subscription through Codex CLI, authenticate once after the containers start:
+```bash
+docker compose exec backend codex login --device-auth
+docker compose exec backend codex login status
+```
+Then pick **Codex CLI (ChatGPT Subscription)** in Settings › AI. The login lives in the `codex_auth` volume (about 100 MB with Codex's own state); no API key needed. A plan limit fails over to the fallback provider without retrying.
 
 A longer walkthrough, screen by screen, is in [docs/GETTING-STARTED.md](docs/GETTING-STARTED.md).
 
