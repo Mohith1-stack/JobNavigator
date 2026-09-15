@@ -111,8 +111,8 @@ def _apps_bulk_move(c):
             pg.wait_for_timeout(200)
             bar = _bar_text(pg)
             c.check('the bulk bar counts both picks', bool(bar) and bar.startswith('2 selected'), bar)
-            c.check('…and offers the four stages plus Delete',
-                    bool(bar) and all(w in bar for w in ('Applied', 'Interview', 'Offer', 'Rejected', 'Delete')), bar)
+            c.check('…and offers the four stages',
+                    bool(bar) and all(w in bar for w in ('Applied', 'Interview', 'Offer', 'Rejected')), bar)
 
             applied_btn = pg.locator('[title="All selected are already in Applied"]')
             c.check('the stage both rows are already in is inert', applied_btn.count() == 1,

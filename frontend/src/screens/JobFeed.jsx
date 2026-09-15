@@ -74,7 +74,8 @@ const BADGE = {
 // surfaces, so these keep their own look — one object so they cannot drift.
 const RAIL_BTN = {
   height: 27, padding: '0 11px', border: '1px solid var(--on-rail-line)', borderRadius: 'var(--radius-control)',
-  display: 'flex', alignItems: 'center', fontSize: 11.5, color: 'var(--rail-ink)', cursor: 'pointer',
+  // --ctl-line, not the v2-ctl 1: at 1 the line box is the em and Plex's ink rides high in a centred box (see Select)
+  display: 'flex', alignItems: 'center', fontSize: 11.5, lineHeight: 'var(--ctl-line)', color: 'var(--rail-ink)', cursor: 'pointer',
 }
 const SOURCE_LABELS = {
   direct: 'Direct', extension: 'Extension', jobspy_linkedin: 'LinkedIn', jobspy_indeed: 'Indeed',

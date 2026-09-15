@@ -70,7 +70,8 @@ const POPOVER = { position: 'absolute', top: '100%', zIndex: 40 }
 // constant is duplicated rather than hoisted because it is not a primitive.
 const RAIL_BTN = {
   height: 27, padding: '0 11px', border: '1px solid var(--on-rail-line)', borderRadius: 'var(--radius-control)',
-  display: 'flex', alignItems: 'center', fontSize: 11.5, color: 'var(--rail-ink)', cursor: 'pointer',
+  // --ctl-line, not the v2-ctl 1: at 1 the line box is the em and Plex's ink rides high in a centred box (see Select)
+  display: 'flex', alignItems: 'center', fontSize: 11.5, lineHeight: 'var(--ctl-line)', color: 'var(--rail-ink)', cursor: 'pointer',
 }
 // (round 9: ACT_BTN is gone — the three header actions it painted are now
 // `Button variant="secondary"` / `IconButton`, see the detail header below.)
@@ -322,25 +323,6 @@ export default function Applications() {
     } catch (e) {
       console.error(e); pushToast({ kind: 'error', msg: `Could not move ${ids.length} application${ids.length === 1 ? '' : 's'}` + errSuffix(e) }); load()
     } finally { setBulkBusy(false) }
-  }
-  const bulkRemove = () => {
-    const ids = selectedRows.map((a) => a.id)
-    if (!ids.length || bulkBusy) return
-    // styled dialog, as the single delete: there is no undo for a deleted application.
-    setConfirm({
-      title: `Delete ${ids.length} application${ids.length === 1 ? '' : 's'}?`,
-      body: 'Their jobs go back to Saved in the feed. This cannot be undone.',
-      label: 'Delete', danger: true,
-      onConfirm: async () => {
-        setConfirm(null); setBulkBusy(true)
-        try {
-          await api.post('/applications/bulk-delete', { ids })
-          setChecked(new Set()); load(); window.dispatchEvent(new CustomEvent('jn:counts-changed'))
-          pushToast({ kind: 'success', msg: `Deleted ${ids.length} application${ids.length === 1 ? '' : 's'}.` })
-        } catch (e) { console.error(e); pushToast({ kind: 'error', msg: `Could not delete ${ids.length} application${ids.length === 1 ? '' : 's'}` + errSuffix(e) }); load() }
-        finally { setBulkBusy(false) }
-      },
-    })
   }
 
   const canAddInterview = !intBusy && (!!intWhat.trim() || !!intWhen)   // a blank form adds nothing
@@ -634,10 +616,6 @@ export default function Applications() {
                     style={{ ...RAIL_BTN, ...(done ? { opacity: 0.4, cursor: 'default' } : null) }}>{st.label}</div>
                 )
               })}
-              {/* ui: keep — RAIL_BTN, as above. There is no on-rail danger ink in the token
-                  set, so Delete is the same control as the others and says what it does
-                  in its title; the ConfirmDialog behind it is the real guard. */}
-              <div onClick={bulkRemove} className="v2-onrail v2-ctl" title={`Delete ${checked.size} application${checked.size === 1 ? '' : 's'}`} style={RAIL_BTN}>Delete</div>
               <div onClick={() => setChecked(new Set())} className="v2-onrail" title="Clear the selection" style={{ width: 27, height: 27, borderRadius: 'var(--radius-control)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 12, color: 'var(--on-rail-dim)', cursor: 'pointer' }}>✕</div>
             </div>
           </div>

@@ -2062,7 +2062,8 @@
 .jn-v2[data-theme="win98"] .v2-bulkbar { background:var(--surface) !important; color:var(--text) !important; border-radius:0 !important; padding:3px 4px 3px 8px !important; border:var(--bevel-raised-border) !important; border-color:var(--bevel-raised-color) !important; box-shadow:var(--bevel-raised-shadow) !important; }
 .jn-v2[data-theme="win98"] .v2-bulkbar > span { color:var(--text) !important; }
 .jn-v2[data-theme="win98"] .v2-bulksep { background:var(--line) !important; }
-.jn-v2[data-theme="win98"] .v2-onrail { background:var(--surface) !important; color:var(--text) !important; font-weight:700; border-radius:0 !important; border:var(--bevel-raised-border) !important; border-color:var(--bevel-raised-color) !important; box-shadow:var(--bevel-raised-shadow) !important; }
+.jn-v2[data-theme="win98"] .v2-bulkbar .v2-btn { height:23px !important; padding:0 9px !important; font-size:11px !important; font-weight:700 !important; min-width:0 !important; box-shadow:var(--bevel-raised-shadow) !important; }   /* Save is one more toolbar button in the strip (board: h 23 · px 9 · 11px bold), not the dialog default button with its dark ring */
+.jn-v2[data-theme="win98"] .v2-onrail { height:23px !important; padding:0 9px !important; font-size:11px !important; background:var(--surface) !important; color:var(--text) !important; font-weight:700; border-radius:0 !important; border:var(--bevel-raised-border) !important; border-color:var(--bevel-raised-color) !important; box-shadow:var(--bevel-raised-shadow) !important; }
 .jn-v2[data-theme="win98"] .v2-onrail:hover { background:var(--surface) !important; }
 .jn-v2[data-theme="win98"] .v2-onrail:active { border:var(--bevel-inset-border) !important; border-color:var(--bevel-inset-color) !important; box-shadow:var(--bevel-inset-shadow) !important; }
 /* Round 9 #12a · `:not([role="dialog"])`. `ModalPanel` wears `v2-raised` for its
