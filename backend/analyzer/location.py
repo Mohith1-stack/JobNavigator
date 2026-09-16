@@ -185,6 +185,10 @@ _LABEL_HEAD = re.compile(r"^\s*(job\s+)?(locations?|offices?|sites?)\s*:\s*", re
 # country, with nothing between them that `_SPLIT` would cut.
 _REMOTE_COUNTRY = re.compile(
     r"^(?:fully\s+|100%\s+)?remote(?:\s+(?:in|from|within))?\s*[-–—:,]?\s+(.+)$", re.I)
+# The same pair written the other way round: "USA Remote", "Canada Remote".
+# A separator would have split these too, so only the spaced form reaches here.
+_COUNTRY_REMOTE = re.compile(
+    r"^(.+?)\s*[-–—:,]?\s+(?:fully\s+|100%\s+)?remote$", re.I)
 
 # A metro name maps to its anchor city. `None` for the city means the phrase
 # names an area too wide for one city - it still answers the country filter,
@@ -536,17 +540,24 @@ def _plain_country(token: str) -> str | None:
 
 
 def _remote_country(text: str) -> str | None:
-    """The country of "Remote US", "Remote in Canada", "Remote - Germany".
+    """The country of "Remote US", "Remote in Canada", "Remote - Germany", and
+    of the same pair written country first: "USA Remote", "Canada Remote".
 
     A separator would have split these already; written with a space or with
     "in" they reached the city column as a city called "Remote US". The rest of
     the string has to be a country outright - "Remote CA" stays unread, the same
-    way "Richmond, CA" does.
+    way "Richmond, CA" does, and "USAVAReston" names no country at all so the
+    run-together Workday segment is still returned as written.
     """
-    match = _REMOTE_COUNTRY.match((text or "").strip())
-    if not match:
-        return None
-    return _plain_country(match.group(1).strip().strip("()").strip())
+    stripped = (text or "").strip()
+    for pattern in (_REMOTE_COUNTRY, _COUNTRY_REMOTE):
+        match = pattern.match(stripped)
+        if not match:
+            continue
+        country = _plain_country(match.group(1).strip().strip("()").strip())
+        if country:
+            return country
+    return None
 
 
 def _classify(token: str) -> tuple[str, object]:

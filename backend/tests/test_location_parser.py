@@ -255,7 +255,7 @@ def test_countries_seen_on_live_boards(text, expected):
     assert canonical(text) == expected
 
 
-@pytest.mark.parametrize("text", ["USAVAReston", "USA Remote"])
+@pytest.mark.parametrize("text", ["USAVAReston"])
 def test_a_run_together_value_is_returned_as_written(text):
     """Some Workday URL segments carry no separator at all. Splitting them
     would be a guess, so the board's own text is kept."""
@@ -452,9 +452,22 @@ def test_remote_and_a_non_country_is_not_read_as_one(text):
     assert parse(text)["country"] is None
 
 
-def test_a_country_written_before_remote_is_still_left_alone():
-    """"USA Remote" is a run-together Workday segment, not this shape."""
-    assert canonical("USA Remote") == "USA Remote"
+@pytest.mark.parametrize("text,mirror,country", [
+    ("USA Remote", "Remote USA", "US"),
+    ("US Remote", "Remote US", "US"),
+    ("United States Remote", "Remote United States", "US"),
+    ("Canada Remote", "Remote Canada", "CA"),
+    ("USA - Remote", "Remote - USA", "US"),
+])
+def test_a_country_written_before_remote_reads_the_same_as_after_it(text, mirror, country):
+    """Boards write the pair in either order. "USA Remote" is the country
+    first, and it answers exactly as "Remote US" does: the country, no city,
+    remote. "USAVAReston" carries no arrangement word, so the run-together
+    Workday segment is still left alone."""
+    result = parse(text)
+    assert (result["country"], result["region"], result["city"]) == (country, None, None)
+    assert result["arrangement"] == "remote"
+    assert result == parse(mirror)
 
 
 # ── "Multiple Locations" is never a city ─────────────────────────────────────
