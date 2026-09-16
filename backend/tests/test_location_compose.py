@@ -24,7 +24,8 @@ def _search(db, **kw):
     kw.setdefault("company_filter", [])
     kw.setdefault("company_exclude", [])
     kw.setdefault("country", "usa")
-    s = Search(name="Location probe", search_mode="keyword", active=True,
+    kw.setdefault("search_mode", "keyword")
+    s = Search(name="Location probe", active=True,
                search_term="program manager", **kw)
     db.add(s)
     db.commit()
@@ -73,11 +74,14 @@ def _first_run_auth(db):
     # and the country field decides. "United States" is the column default.
     ("United States", "usa", "United States"),
     ("US", "usa", "United States"),
+    # A location that names ANOTHER country is refused by the write path, so
+    # only a row stored before this change reaches the composition. See
+    # `test_create_rejects_a_location_that_names_another_country`.
     ("Canada", "usa", "United States"),
-    # Text that names no place still receives the country. Measured on LinkedIn:
-    # a bare "Remote" returns Taiwan, Japan, India, Canada and Ireland, and
-    # "Remote, United States" returns Remote, Oregon. Neither is a remote search,
-    # so the country stays and the forms point at the `is_remote` field.
+    # Text that names no place still receives the country. Measured with "usa":
+    # Indeed answers both spellings with the same 20 "Remote, US" rows, so the
+    # country costs it nothing, while LinkedIn answers a bare "Remote" with jobs
+    # in Taiwan, Japan and India. The forms point at the `is_remote` field.
     ("Remote", "usa", "Remote, United States"),
     ("Bay Area", "usa", "Bay Area, United States"),
     # An unknown or missing country falls back the way `country_indeed` does.
@@ -180,7 +184,10 @@ def test_the_migration_removes_only_a_country_segment(test_db):
     assert with_country.location == "Toronto"
     assert with_region.location == "Toronto, ON", "a region is not a country"
     assert plain.location == "Austin"
-    assert only_country.location == "", "a country name carries no place"
+    # The last segment always stays. Removing it would strip one more segment on
+    # every restart for a name that repeats itself. `compose_location()` drops a
+    # country-only location anyway, so the query is right either way.
+    assert only_country.location == "United States"
 
 
 def test_the_migration_keeps_the_country_field_when_the_text_disagrees(test_db, caplog):
@@ -199,7 +206,23 @@ def test_the_migration_keeps_the_country_field_when_the_text_disagrees(test_db, 
         "a contradicting row must be logged"
 
 
+def test_the_migration_logs_a_country_only_location_that_disagrees(test_db, caplog):
+    """The text stays, so only the log tells an operator this row scrapes the
+    country its text denies. The write path refuses to create a new one."""
+    from backend.seed import _strip_country_from_search_location
+
+    search = _search(test_db, location="Canada", country="usa")
+
+    with caplog.at_level(logging.WARNING):
+        _strip_country_from_search_location(test_db)
+
+    test_db.refresh(search)
+    assert search.location == "Canada", "the last segment always stays"
+    assert any("keeping country" in r.getMessage() for r in caplog.records)
+
+
 def test_the_migration_is_idempotent(test_db):
+    """Three runs, because the first version was stable only for rows that never doubled."""
     from backend.seed import _strip_country_from_search_location
 
     rows = [
@@ -207,16 +230,70 @@ def test_the_migration_is_idempotent(test_db):
         _search(test_db, location="Toronto, ON", country="canada"),
         _search(test_db, location="United States", country="usa"),
         _search(test_db, location="Remote", country="usa"),
+        # A city whose name repeats its country. Stripping one segment per run
+        # would widen each of these to the whole country on the next restart.
+        _search(test_db, location="Luxembourg, Luxembourg", country="luxembourg"),
+        _search(test_db, location="Mexico, Mexico", country="mexico"),
+        _search(test_db, location="Panama, Panama", country="panama"),
+        _search(test_db, location="Kuwait, Kuwait", country="kuwait"),
+        _search(test_db, location="Singapore, Singapore", country="singapore"),
     ]
     _strip_country_from_search_location(test_db)
     for row in rows:
         test_db.refresh(row)
     after_first = [r.location for r in rows]
+    assert "Luxembourg" in after_first and "Mexico" in after_first
+
+    for _ in range(2):
+        _strip_country_from_search_location(test_db)
+        for row in rows:
+            test_db.refresh(row)
+        assert [r.location for r in rows] == after_first, \
+            "a later run must change nothing"
+
+
+def test_the_migration_keeps_the_last_segment(test_db):
+    """The doubled-name case, spelled out. Two runs used to leave an empty location."""
+    from backend.seed import _strip_country_from_search_location
+
+    row = _search(test_db, location="Luxembourg, Luxembourg", country="luxembourg")
+    _strip_country_from_search_location(test_db)
+    test_db.refresh(row)
+    assert row.location == "Luxembourg"
 
     _strip_country_from_search_location(test_db)
-    for row in rows:
-        test_db.refresh(row)
-    assert [r.location for r in rows] == after_first, "a second run must change nothing"
+    test_db.refresh(row)
+    assert row.location == "Luxembourg", "a second restart must not widen the search"
+
+
+def test_the_migration_settles_a_repeated_country_in_one_pass(test_db):
+    """One pass removes every country segment, not one segment per pass."""
+    from backend.seed import _strip_country_from_search_location
+
+    row = _search(test_db, location="Mexico, Mexico, Mexico", country="mexico")
+    _strip_country_from_search_location(test_db)
+    test_db.refresh(row)
+    assert row.location == "Mexico"
+
+
+def test_the_migration_leaves_other_search_modes_alone(test_db):
+    """`jobright` reads search.location raw and drops the parameter when it is empty.
+
+    It never reaches `compose_location()`, so rewriting its rows would move this
+    defect to a board this change never measured.
+    """
+    from backend.seed import _strip_country_from_search_location
+
+    jobright = _search(test_db, location="Vancouver, Canada", country="usa",
+                       search_mode="jobright")
+    keyword = _search(test_db, location="Vancouver, Canada", country="canada")
+
+    _strip_country_from_search_location(test_db)
+
+    test_db.refresh(jobright)
+    test_db.refresh(keyword)
+    assert jobright.location == "Vancouver, Canada", "only keyword rows are composed"
+    assert keyword.location == "Vancouver"
 
 
 def test_run_migrations_calls_the_location_strip(test_db, monkeypatch):
@@ -277,3 +354,128 @@ def test_a_raising_strip_does_not_abort_the_migration(test_db, monkeypatch):
     monkeypatch.setattr(seed, "run_migration_statements", lambda db, statements: [])
 
     seed.run_migrations(test_db)      # raises if the guard is missing
+
+
+# ── the write path refuses a pair that disagrees ─────────────────────────────
+
+def _payload(**kw):
+    body = {"name": "New search", "search_mode": "keyword", "search_term": "pm"}
+    body.update(kw)
+    return body
+
+
+def test_create_rejects_a_location_that_names_another_country(api_client, test_db):
+    """The pair used to fail loudly: Indeed answered zero rows and the health
+    check raised a warning. Composed, it becomes a silent wrong-country scrape,
+    so the API refuses it instead of choosing a side for the user."""
+    _first_run_auth(test_db)
+    resp = api_client.post("/api/searches",
+                           json=_payload(location="Toronto, Canada", country="usa"))
+
+    assert resp.status_code == 400, f"Unexpected {resp.status_code}: {resp.text}"
+    assert "canada" in resp.json()["detail"].lower()
+    assert test_db.query(Search).filter(Search.name == "New search").count() == 0
+
+
+def test_create_rejects_a_location_that_is_another_country(api_client, test_db):
+    """The case the composition would otherwise swallow whole: the text vanishes."""
+    _first_run_auth(test_db)
+    resp = api_client.post("/api/searches",
+                           json=_payload(location="Canada", country="usa"))
+    assert resp.status_code == 400, f"Unexpected {resp.status_code}: {resp.text}"
+
+
+@pytest.mark.parametrize("location,country", [
+    ("Toronto, Canada", "canada"),   # the text agrees with the field
+    ("Toronto, ON", "canada"),       # a region is not a country
+    ("Toronto", "canada"),
+    ("Remote", "usa"),
+    ("", "canada"),
+])
+def test_create_accepts_a_location_that_does_not_disagree(api_client, test_db,
+                                                          location, country):
+    _first_run_auth(test_db)
+    resp = api_client.post("/api/searches",
+                           json=_payload(location=location, country=country))
+    assert resp.status_code == 200, f"Unexpected {resp.status_code}: {resp.text}"
+
+
+def test_patch_rejects_a_location_that_contradicts_the_stored_country(api_client, test_db):
+    _first_run_auth(test_db)
+    search = _search(test_db, location="Austin", country="usa")
+
+    resp = api_client.patch(f"/api/searches/{search.id}",
+                            json={"location": "Toronto, Canada"})
+
+    assert resp.status_code == 400, f"Unexpected {resp.status_code}: {resp.text}"
+    test_db.refresh(search)
+    assert search.location == "Austin", "a rejected write must leave the row alone"
+
+
+def test_patch_rejects_a_country_that_contradicts_the_stored_location(api_client, test_db):
+    """The same pair, reached from the other field."""
+    _first_run_auth(test_db)
+    search = _search(test_db, location="Toronto, Canada", country="canada")
+
+    resp = api_client.patch(f"/api/searches/{search.id}", json={"country": "usa"})
+
+    assert resp.status_code == 400, f"Unexpected {resp.status_code}: {resp.text}"
+    test_db.refresh(search)
+    assert search.country == "canada", "a rejected write must leave the row alone"
+
+
+def test_patch_accepts_the_pair_when_both_fields_move_together(api_client, test_db):
+    """Changing both at once is how a user moves a search to another country."""
+    _first_run_auth(test_db)
+    search = _search(test_db, location="Toronto, Canada", country="canada")
+
+    resp = api_client.patch(f"/api/searches/{search.id}",
+                            json={"location": "Austin", "country": "usa"})
+
+    assert resp.status_code == 200, f"Unexpected {resp.status_code}: {resp.text}"
+    test_db.refresh(search)
+    assert (search.location, search.country) == ("Austin", "usa")
+
+
+def test_patch_leaves_the_pair_alone_when_neither_field_moves(api_client, test_db):
+    """A legacy row stays editable: renaming it must not fail on its own text."""
+    _first_run_auth(test_db)
+    search = _search(test_db, location="Toronto, Canada", country="usa")
+
+    resp = api_client.patch(f"/api/searches/{search.id}", json={"name": "Renamed"})
+
+    assert resp.status_code == 200, f"Unexpected {resp.status_code}: {resp.text}"
+
+
+# ── the backfill says which rows it guessed ──────────────────────────────────
+
+def test_the_backfill_logs_a_location_that_names_no_country(test_db, caplog):
+    """A region code reads as no country, so the backfill guesses usa and the
+    scraper then sends "Toronto, ON, United States". An operator must see it."""
+    from backend.seed import _backfill_search_country
+
+    search = _search(test_db, location="Toronto, ON")
+    search.country = None
+    test_db.commit()
+
+    with caplog.at_level(logging.WARNING):
+        _backfill_search_country(test_db)
+
+    test_db.refresh(search)
+    assert search.country == "usa"
+    assert any("guessed" in r.getMessage() for r in caplog.records), \
+        "a guessed country must be logged"
+
+
+def test_the_backfill_stays_quiet_when_it_reads_a_country(test_db, caplog):
+    from backend.seed import _backfill_search_country
+
+    for location in ("Toronto, Canada", "", None):
+        row = _search(test_db, location=location)
+        row.country = None
+        test_db.commit()
+
+    with caplog.at_level(logging.WARNING):
+        _backfill_search_country(test_db)
+
+    assert not [r for r in caplog.records if "guessed" in r.getMessage()]

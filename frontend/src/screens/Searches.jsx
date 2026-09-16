@@ -195,7 +195,7 @@ const toPayload = (d) => {
   // location and country are keyword-search fields only — sending them for
   // levels_fyi / jobright / freehire / extension searches means nothing.
   if (d.search_mode === 'keyword') {
-    p.location = d.location || 'United States'
+    p.location = d.location || ''
     p.country = d.country || DEFAULT_COUNTRY
   }
   return p
