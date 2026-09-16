@@ -33,7 +33,7 @@ const SOURCE_COLORS = {
 
 const DEFAULT_FORM = {
   name: '', search_mode: 'keyword', search_term: '', direct_url: '',
-  location: 'United States', country: DEFAULT_COUNTRY, is_remote: '', job_type: 'fulltime',
+  location: '', country: DEFAULT_COUNTRY, is_remote: '', job_type: 'fulltime',
   hours_old: 24, results_wanted: 50,
   sources: ['linkedin', 'indeed', 'zip_recruiter', 'google'],
   title_include_keywords: '', title_exclude_keywords: 'intern, junior, associate',
@@ -79,7 +79,7 @@ export default function SearchManager() {
     setEditing(s.id)
     setEditData({
       name: s.name, search_mode: s.search_mode, search_term: s.search_term || '',
-      direct_url: s.direct_url || '', location: s.location || 'United States',
+      direct_url: s.direct_url || '', location: s.location || '',
       country: s.country || DEFAULT_COUNTRY,
       is_remote: s.is_remote === true ? 'true' : s.is_remote === false ? 'false' : '',
       job_type: s.job_type || 'fulltime', hours_old: s.hours_old || 24,
@@ -342,17 +342,17 @@ export default function SearchManager() {
           <>
             <div>
               <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Location</label>
-              <input type="text" value={ed.location} onChange={e => setEd({ location: e.target.value })}
+              <input type="text" value={ed.location} onChange={e => setEd({ location: e.target.value })} placeholder="e.g. Toronto"
                 className="border rounded px-2 py-1.5 text-sm w-full dark:bg-gray-700 dark:text-gray-200 dark:border-gray-600" />
+              <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">A city or a region. Country adds the country. For remote work set Remote and leave this empty.</p>
             </div>
             <div>
-              {/* Picks the Indeed site and its API country header. A country that
-                  disagrees with Location returns nothing from Indeed. */}
-              <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Country (Indeed site)</label>
+              <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Country</label>
               <select value={ed.country} onChange={e => setEd({ country: e.target.value })}
                 className="border rounded px-2 py-1.5 text-sm w-full dark:bg-gray-700 dark:text-gray-200 dark:border-gray-600">
                 {countries.map(c => <option key={c.value} value={c.value}>{c.label}</option>)}
               </select>
+              <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">The only country source. Every board receives it.</p>
             </div>
             <div>
               <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Remote</label>

@@ -269,9 +269,10 @@ function ConfigForm({ d, set }) {
   if (m === 'keyword') {
     fields.push(
       <Cell key="term" label="Search term" mono value={d.search_term} onChange={(v) => set({ search_term: v })} placeholder="e.g. technical program manager" />,
-      <Cell key="loc" label="Location" value={d.location} onChange={(v) => set({ location: v })} placeholder="United States" />,
+      <Cell key="loc" label="Location" value={d.location} onChange={(v) => set({ location: v })} placeholder="e.g. Toronto"
+        sub="A city or a region. Country adds the country. For remote work set Remote and leave this empty." />,
       <Cell key="ctry" label="Country" value={d.country} options={countries} onChange={(v) => set({ country: v })}
-        sub="Picks the Indeed site. A mismatch with Location returns nothing." />,
+        sub="The only country source. Every board receives it." />,
       <Cell key="rem" label="Remote" value={d.is_remote} options={[['', 'Any'], ['true', 'Remote only'], ['false', 'On-site only']]} onChange={(v) => set({ is_remote: v })} />,
       <Cell key="jt" label="Job type" value={d.job_type} options={[['fulltime', 'Full-time'], ['parttime', 'Part-time'], ['contract', 'Contract']]} onChange={(v) => set({ job_type: v })} />,
       <Cell key="ho" label="Hours old · 0–720" mono type="number" min={BOUNDS.hours_old[0]} max={BOUNDS.hours_old[1]} value={d.hours_old} onChange={(v) => set({ hours_old: v })} />,
