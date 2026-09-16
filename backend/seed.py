@@ -732,10 +732,13 @@ END $$;""",
         logger.warning("searches.country was not added — skipping the country backfill")
     else:
         try:
+            # Order matters: the backfill reads the country out of the location
+            # text, so it must run before the strip removes that text.
             _backfill_search_country(db)
+            _strip_country_from_search_location(db)
         except Exception as e:
             db.rollback()
-            logger.warning("Country backfill skipped: %s", str(e).strip()[:300])
+            logger.warning("Country migration skipped: %s", str(e).strip()[:300])
 
     _rewrite_retired_status_transitions(db)
 
@@ -756,6 +759,41 @@ def _backfill_search_country(db):
         search.country = country_from_location(search.location)
     db.commit()
     logger.info("Backfilled searches.country for %d row(s)", len(rows))
+
+
+def _strip_country_from_search_location(db):
+    """Remove the country segment from each search's location text.
+
+    The migration needs this once. It stays cheap and idempotent afterwards, and
+    it also cleans a country a user types into the field later.
+
+    `location` now holds a city or a region, and `country` is the single country
+    source. The scraper appends the label of `country` to the location, so a
+    country left in the text would appear twice.
+
+    `normalize_country()` decides what a country segment is, so "Toronto, ON"
+    stays whole and "Toronto, Canada" becomes "Toronto". A row whose segment
+    disagrees with the stored country keeps the country, because the user picked
+    that field; the row is logged.
+    """
+    from backend.countries import split_country_suffix
+    from backend.models.db import Search
+
+    changed = 0
+    for search in db.query(Search).filter(Search.location.isnot(None)).all():
+        place, found = split_country_suffix(search.location)
+        if found is None:
+            continue
+        if search.country and found != search.country:
+            logger.warning(
+                "Search %s: location said %s but country is %s — keeping country",
+                search.name, found, search.country,
+            )
+        search.location = place
+        changed += 1
+    if changed:
+        db.commit()
+        logger.info("Removed the country from searches.location for %d row(s)", changed)
 
 
 _RETIRED_STATUS_REMAP = {
