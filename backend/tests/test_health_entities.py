@@ -99,8 +99,9 @@ def test_search_flagged_and_count(test_db):
 
 # ── the reason text when one board returned nothing ─────────────────────────
 # is_warning also fires for "one board returned nothing while the others
-# worked". "No results in the last 3 scrapes" is false about such a run, so
-# these pin what the reason says instead.
+# worked". These tests pin which sentence the reason carries: the board name
+# when one board was quiet across the whole window, the original
+# "No results in the last N scrapes" in every other case.
 
 def _quiet_log(search_id, quiet_boards, ago_min, jobs_found=40):
     """A run that found jobs, where each named board returned no rows."""
@@ -146,9 +147,9 @@ def test_reason_names_every_board_quiet_across_the_whole_window(test_db):
 def test_reason_names_no_board_when_the_quiet_one_changes(test_db):
     """Indeed, then Google, then Indeed: no board was quiet throughout.
 
-    The choice: name none. A board that did deliver rows must never be named,
-    and the old wording ("No results") is false about a run that found 40 jobs.
-    A sentence that names no board is the only one true in every ordering.
+    The choice: name none, and fall back to the original sentence. A board that
+    did deliver rows must never be named. The fallback can be false about a run
+    that found 40 jobs; the user accepts that cost and keeps the wording.
     """
     s = Search(name="Alternating", search_mode="keyword", active=True)
     test_db.add(s)
@@ -159,9 +160,8 @@ def test_reason_names_no_board_when_the_quiet_one_changes(test_db):
     test_db.commit()
 
     reason = _reason_for("Alternating")
-    assert reason == "A configured board returned nothing in the last 3 scrapes"
+    assert reason == "No results in the last 3 scrapes"
     assert "Indeed" not in reason and "Google" not in reason
-    assert "No results" not in reason
 
 
 def test_reason_keeps_the_old_wording_without_board_evidence(test_db):

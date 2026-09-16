@@ -1320,19 +1320,16 @@ def get_failing_entities(window: Annotated[int, Query(ge=1, le=100)] = 3):
             if err:
                 return err[:160]
             # is_warning also covers "one board returned nothing while the others
-            # worked". Three outcomes, each one true as written:
+            # worked". Two outcomes:
             #  - a board quiet on every run in the window: name it;
-            #  - a quiet board that changed between runs: say that much and name
-            #    none, because naming a board that did deliver rows is worse
-            #    than a sentence that names none;
-            #  - no board evidence at all: the entity itself found nothing.
+            #  - every other case: the original sentence. It can be false about
+            #    a run that found jobs while a board stayed quiet on some runs
+            #    only. The user accepts that cost and keeps this wording.
             per_run = [set(empty_sources(r.source_breakdown)) for r in recent]
             always_quiet = sorted(set.intersection(*per_run)) if per_run else []
             if always_quiet:
                 return " · ".join(f"{source_label(k)} returned nothing" for k in always_quiet) \
                        + f" in the last {window} scrapes"
-            if any(per_run):
-                return f"A configured board returned nothing in the last {window} scrapes"
             return f"No results in the last {window} scrapes"
 
         # Paused/inactive entities are excluded on purpose (their last-run state
