@@ -110,13 +110,23 @@ def describe_source_errors(breakdown) -> str:
 
 
 def empty_sources(breakdown) -> list:
-    """Configured boards that contributed nothing at all — no kept posting, no filtered one, and no reported failure."""
+    """Configured boards that returned no rows at all and reported no failure.
+
+    The test reads `returned`, the count the source module takes before any
+    filter runs. `seen` and `filtered` cannot answer this: a board whose rows the
+    title filter rejects leaves `seen` at 0, and `filtered` counts only rejected
+    rows that were new enough to store, so both read 0 from the second run on
+    while the board keeps delivering rows.
+
+    A row written before `returned` existed carries no such key. Those entries
+    are skipped, because an old row holds no evidence either way.
+    """
     if not isinstance(breakdown, dict):
         return []
     return [
         str(key) for key, val in breakdown.items()
         if isinstance(val, dict) and not val.get("error")
-        and not (val.get("seen") or 0) and not (val.get("filtered") or 0)
+        and "returned" in val and not (val.get("returned") or 0)
     ]
 
 

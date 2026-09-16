@@ -1296,7 +1296,7 @@ def get_failing_entities(window: Annotated[int, Query(ge=1, le=100)] = 3):
     (R4-T1-10).
     """
     from backend.models.db import ScrapeLog, Company, Search, is_acknowledged
-    from backend.scraper.orchestrator import source_errors, source_label
+    from backend.scraper.orchestrator import empty_sources, source_errors, source_label
     db = SessionLocal()
     try:
         def _reason(entity_col, entity_id, acknowledged_at=None):
@@ -1317,7 +1317,17 @@ def get_failing_entities(window: Annotated[int, Query(ge=1, le=100)] = 3):
             if len(recent) < window or not all(r.error or r.is_warning for r in recent):
                 return None
             err = next((r.error for r in recent if r.error), None)
-            return err[:160] if err else f"No results in the last {window} scrapes"
+            if err:
+                return err[:160]
+            # is_warning also covers "one board returned nothing while the others
+            # worked". Name that board rather than claim the whole entity found
+            # nothing, which the row's own jobs_found would contradict.
+            quiet = [k for k in empty_sources(recent[0].source_breakdown)
+                     if all(k in empty_sources(r.source_breakdown) for r in recent)]
+            if quiet:
+                return " · ".join(f"{source_label(k)} returned nothing" for k in quiet) \
+                       + f" in the last {window} scrapes"
+            return f"No results in the last {window} scrapes"
 
         # Paused/inactive entities are excluded on purpose (their last-run state
         # is history, not an open problem) but still show up muted in the row.

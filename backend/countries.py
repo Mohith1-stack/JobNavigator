@@ -21,8 +21,15 @@ _INTERNAL_MEMBERS = frozenset({"US_CANADA", "WORLDWIDE"})
 
 
 def _aliases(member) -> list:
-    """The spellings `Country.from_string()` accepts for one enum member."""
-    return [a.strip() for a in member.value[0].split(",") if a.strip()]
+    """The spellings `Country.from_string()` accepts for one enum member.
+
+    jobspy stores each member as a tuple whose first item is a comma-separated
+    alias string. The shape is checked, not assumed: on a plain-string value
+    `value[0]` would be the first letter, and "usa" would silently become "u".
+    """
+    value = member.value
+    raw = value[0] if isinstance(value, (tuple, list)) and value else value
+    return [a.strip() for a in str(raw).split(",") if a.strip()]
 
 
 @lru_cache(maxsize=1)

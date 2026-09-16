@@ -545,6 +545,11 @@ def run_migration_statements(db, statements) -> list:
     return failed
 
 
+# Named, because run_migrations() must be able to tell whether this one statement
+# failed before it lets the backfill query the column.
+_ADD_COUNTRY_COLUMN = "ALTER TABLE searches ADD COLUMN IF NOT EXISTS country VARCHAR"
+
+
 def run_migrations(db):
     """Run ALTER TABLE migrations for columns that create_all() won't add to existing tables."""
     migrations = [
@@ -714,12 +719,24 @@ END $$;""",
         # writes x into every existing row, and the NULL rows are exactly the
         # ones _backfill_search_country() below must still read. `SET DEFAULT`
         # applies to later inserts only, so the two statements are safe in this order.
-        "ALTER TABLE searches ADD COLUMN IF NOT EXISTS country VARCHAR",
+        _ADD_COUNTRY_COLUMN,
         "ALTER TABLE searches ALTER COLUMN country SET DEFAULT 'usa'",
     ]
-    run_migration_statements(db, migrations)
+    failed = run_migration_statements(db, migrations)
 
-    _backfill_search_country(db)
+    # The backfill reads searches.country. Without the column the SELECT raises
+    # out of run_seeds() and out of the FastAPI lifespan, and the container
+    # restarts forever — the exact whole-list abort run_migration_statements()
+    # exists to prevent. Skip the backfill instead, and say so.
+    if _ADD_COUNTRY_COLUMN in failed:
+        logger.warning("searches.country was not added — skipping the country backfill")
+    else:
+        try:
+            _backfill_search_country(db)
+        except Exception as e:
+            db.rollback()
+            logger.warning("Country backfill skipped: %s", str(e).strip()[:300])
+
     _rewrite_retired_status_transitions(db)
 
 

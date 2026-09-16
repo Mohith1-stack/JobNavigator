@@ -218,14 +218,76 @@ def test_backfill_is_idempotent(test_db):
     assert search.country == "canada", "a second run must not overwrite the field"
 
 
-def test_the_migration_adds_the_column_without_a_default(test_db):
-    """`ADD COLUMN ... DEFAULT x` would write x into every existing row, and those rows are exactly what the backfill must still read."""
+def test_the_migration_adds_the_column_before_it_sets_the_default():
+    """Order is the property, not presence.
+
+    `ADD COLUMN ... DEFAULT x` writes x into every existing row, and those rows
+    are exactly what the backfill must still read. `SET DEFAULT` writes no row,
+    so it must come after and must not ride on the ADD COLUMN line.
+    """
     import inspect
     import backend.seed as seed
 
-    src = inspect.getsource(seed.run_migrations)
-    add = [l for l in src.splitlines() if "ADD COLUMN IF NOT EXISTS country" in l]
+    lines = [l.strip() for l in inspect.getsource(seed.run_migrations).splitlines()]
+    add = [i for i, l in enumerate(lines) if "ADD COLUMN IF NOT EXISTS country" in l
+           or l.startswith("_ADD_COUNTRY_COLUMN")]
+    default = [i for i, l in enumerate(lines) if "ALTER COLUMN country SET DEFAULT" in l]
     assert add, "the searches.country migration disappeared"
-    for line in add:
-        assert "DEFAULT" not in line.upper(), f"ADD COLUMN must not carry a default: {line.strip()}"
-    assert "ALTER COLUMN country SET DEFAULT" in src, "later inserts still need the column default"
+    assert default, "later inserts still need the column default"
+    assert "DEFAULT" not in seed._ADD_COUNTRY_COLUMN.upper(), \
+        f"ADD COLUMN must not carry a default: {seed._ADD_COUNTRY_COLUMN}"
+    assert min(default) > max(add), "SET DEFAULT must run after ADD COLUMN, not before it"
+
+
+def test_run_migrations_calls_the_country_backfill(test_db, monkeypatch):
+    """Without this pin, deleting the call leaves every existing row NULL and the whole suite still passes."""
+    import backend.seed as seed
+
+    called = []
+    monkeypatch.setattr(seed, "_backfill_search_country", lambda db: called.append(db))
+    # SQLite rejects `ADD COLUMN IF NOT EXISTS`, so on this fixture the statement
+    # always lands in the failed list and the guard skips the backfill for a
+    # reason this test is not about. Report a clean list instead.
+    monkeypatch.setattr(seed, "run_migration_statements", lambda db, statements: [])
+
+    seed.run_migrations(test_db)
+
+    assert called, "run_migrations must call the country backfill"
+
+
+def test_the_backfill_is_skipped_when_the_column_was_not_added(test_db, monkeypatch):
+    """The backfill SELECTs searches.country. Without the column it raises out of run_seeds() and the container restarts forever."""
+    import backend.seed as seed
+
+    called = []
+    monkeypatch.setattr(seed, "_backfill_search_country", lambda db: called.append(db))
+    monkeypatch.setattr(seed, "run_migration_statements",
+                        lambda db, statements: [seed._ADD_COUNTRY_COLUMN])
+
+    seed.run_migrations(test_db)
+
+    assert called == [], "a missing column must not reach the backfill SELECT"
+
+
+def test_a_raising_backfill_does_not_abort_the_migration(test_db, monkeypatch):
+    """run_seeds() runs inside the FastAPI lifespan — no migration step may take the container down."""
+    import backend.seed as seed
+
+    def boom(db):
+        raise RuntimeError("column vanished")
+
+    monkeypatch.setattr(seed, "_backfill_search_country", boom)
+    # A clean statement list, so the backfill is really reached (see above).
+    monkeypatch.setattr(seed, "run_migration_statements", lambda db, statements: [])
+
+    seed.run_migrations(test_db)      # raises if the guard is missing
+
+
+def test_aliases_survive_a_plain_string_enum_value():
+    """If a later jobspy drops the tuple, value[0] would be the letter "u" and "usa" would silently become an invalid country."""
+    from backend.countries import _aliases
+
+    class _Member:
+        value = "usa,us,united states"
+
+    assert _aliases(_Member) == ["usa", "us", "united states"]

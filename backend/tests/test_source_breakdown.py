@@ -253,8 +253,8 @@ async def test_scrape_log_flags_a_board_that_returned_nothing(test_db, monkeypat
         return {
             "jobs_found": 40, "new_jobs": 12, "error": None, "duration": 1.0,
             "source_breakdown": {
-                "indeed": {"seen": 0, "new": 0},
-                "linkedin": {"seen": 40, "new": 12},
+                "indeed": {"seen": 0, "new": 0, "returned": 0},
+                "linkedin": {"seen": 40, "new": 12, "returned": 40},
             },
         }
 
@@ -267,14 +267,58 @@ async def test_scrape_log_flags_a_board_that_returned_nothing(test_db, monkeypat
     assert "error" not in log.source_breakdown["indeed"]
 
 
-def test_empty_sources_ignores_a_board_whose_rows_were_filtered_out():
-    """A board that returned rows the title filters dropped is not a silent zero."""
+def test_empty_sources_reads_the_unfiltered_count():
+    """`returned` is the only truthful test; `seen` and `filtered` both read 0 for a board whose rows were rejected and already stored."""
     from backend.scraper.orchestrator import empty_sources
 
-    assert empty_sources({"indeed": {"seen": 0, "new": 0, "filtered": 7}}) == []
-    assert empty_sources({"indeed": {"seen": 0, "new": 0, "error": "403"}}) == []
-    assert empty_sources({"indeed": {"seen": 0, "new": 0}}) == ["indeed"]
+    # the board delivered 7 rows; the title filter dropped them all
+    assert empty_sources({"indeed": {"seen": 0, "new": 0, "returned": 7}}) == []
+    # …and on the next run those rows dedup away, so `filtered` is 0 too
+    assert empty_sources({"indeed": {"seen": 0, "new": 0, "filtered": 0, "returned": 7}}) == []
+    assert empty_sources({"indeed": {"seen": 0, "new": 0, "returned": 0, "error": "403"}}) == []
+    assert empty_sources({"indeed": {"seen": 0, "new": 0, "returned": 0}}) == ["indeed"]
+    # A row an older build wrote holds no evidence either way.
+    assert empty_sources({"indeed": {"seen": 0, "new": 0}}) == []
     assert empty_sources(None) == []
+
+
+def test_a_board_whose_rows_the_filter_rejects_is_not_reported_empty(test_db, monkeypatch):
+    """The regression this guard exists for, through the real source module.
+
+    Run 1 stores the rejected rows as `ignored`. Run 2 dedups them, so `filtered`
+    stops counting and only `returned` still shows the board delivered rows.
+    """
+    from backend.scraper.orchestrator import empty_sources
+    from backend.scraper.sources.jobspy import _run_sync
+
+    rows = [_row("google", f"Recruiter {i}", "Acme", f"https://google.test/{i}") for i in range(12)]
+    _fake_jobspy(rows)
+    search = _search(test_db, ["google"])
+    search.title_include_keywords = ["program manager"]     # rejects all 12
+    test_db.commit()
+
+    first = _run_sync(search)
+    second = _run_sync(search)
+
+    assert first["source_breakdown"]["google"] == {"seen": 0, "new": 0, "returned": 12, "filtered": 12}
+    # run 2: every rejected row is already stored, so `filtered` never increments
+    assert second["source_breakdown"]["google"] == {"seen": 0, "new": 0, "returned": 12}
+    assert empty_sources(second["source_breakdown"]) == []
+
+
+def test_a_board_that_returned_nothing_is_still_reported_empty(test_db, monkeypatch):
+    """The control: the same shape, with a board that really delivered no rows."""
+    from backend.scraper.orchestrator import empty_sources
+    from backend.scraper.sources.jobspy import _run_sync
+
+    _fake_jobspy([_row("linkedin", "Program Manager", "Beta", "https://linkedin.test/a")])
+    search = _search(test_db, ["indeed", "linkedin"])
+
+    result = _run_sync(search)
+
+    assert result["source_breakdown"]["indeed"]["returned"] == 0
+    assert result["source_breakdown"]["linkedin"]["returned"] == 1
+    assert empty_sources(result["source_breakdown"]) == ["indeed"]
 
 
 @pytest.mark.asyncio
@@ -288,8 +332,8 @@ async def test_run_summary_names_a_board_that_returned_nothing(test_db, monkeypa
         return {
             "jobs_found": 40, "new_jobs": 12, "error": None, "duration": 1.0,
             "source_breakdown": {
-                "indeed": {"seen": 0, "new": 0},
-                "linkedin": {"seen": 40, "new": 12},
+                "indeed": {"seen": 0, "new": 0, "returned": 0},
+                "linkedin": {"seen": 40, "new": 12, "returned": 40},
             },
         }
 

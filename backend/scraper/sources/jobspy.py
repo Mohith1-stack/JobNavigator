@@ -162,6 +162,21 @@ def _merge_source_errors(breakdown: dict, errors: dict) -> dict:
     return breakdown
 
 
+def _count_returned(breakdown: dict, jobs_df) -> dict:
+    """Write `returned`, the unfiltered row count, for every configured board.
+
+    Every configured board gets the key, zero included, so a reader can tell a
+    board that delivered nothing from one that an older build never counted.
+    """
+    counts = {}
+    if jobs_df is not None and not jobs_df.empty and "site" in jobs_df.columns:
+        counts = {str(site).lower(): int(n)
+                  for site, n in jobs_df["site"].value_counts().items()}
+    for key in set(breakdown) | set(counts):
+        breakdown.setdefault(key, {"seen": 0, "new": 0})["returned"] = counts.get(key, 0)
+    return breakdown
+
+
 def get_setting_value(db: Session, key: str, default: str = "") -> str:
     """Read a single Setting row's value by key, returning ``default`` if not set."""
     row = db.query(Setting).filter(Setting.key == key).first()
@@ -234,6 +249,13 @@ def _run_sync(search, proxy_url: str = None) -> dict:
         with _capture_source_errors(sources) as capture:
             jobs_df = scrape_jobs(**kwargs)
         _merge_source_errors(breakdown, capture.errors)
+        # Rows each board returned, counted here — before the title filter, the
+        # company allow-list and the company exclude. It is the only truthful
+        # answer to "did this board deliver anything at all?": `seen` counts what
+        # survived the filters, and `filtered` counts only rejected rows that
+        # were new enough to store, so a rejected row already in the database
+        # leaves both at 0 on every run after the first.
+        _count_returned(breakdown, jobs_df)
 
         if jobs_df is None or jobs_df.empty:
             duration = time.time() - start_time
