@@ -17,6 +17,9 @@ const SOURCES = [
 const EXTENSION_MODES = ['linkedin_extension', 'extension']
 const isExtensionMode = (mode) => EXTENSION_MODES.includes(mode)
 
+// Matches backend/countries.py DEFAULT_COUNTRY — jobspy's own alias for the US.
+const DEFAULT_COUNTRY = 'usa'
+
 const SOURCE_COLORS = {
   linkedin: 'bg-blue-100 text-blue-700 dark:bg-blue-900 dark:text-blue-300',
   indeed: 'bg-purple-100 text-purple-700 dark:bg-purple-900 dark:text-purple-300',
@@ -30,7 +33,7 @@ const SOURCE_COLORS = {
 
 const DEFAULT_FORM = {
   name: '', search_mode: 'keyword', search_term: '', direct_url: '',
-  location: 'United States', is_remote: '', job_type: 'fulltime',
+  location: 'United States', country: DEFAULT_COUNTRY, is_remote: '', job_type: 'fulltime',
   hours_old: 24, results_wanted: 50,
   sources: ['linkedin', 'indeed', 'zip_recruiter', 'google'],
   title_include_keywords: '', title_exclude_keywords: 'intern, junior, associate',
@@ -46,6 +49,12 @@ export default function SearchManager() {
     api.get('/health/entities').then(({ data }) => {
       const m = {}; (data.searches || []).forEach(s => { m[s.id] = s.reason }); setDownMap(m)
     }).catch(() => {})
+  }, [])
+  // The country list belongs to the jobspy library — the backend serves it so
+  // this screen keeps no copy of its own.
+  const [countries, setCountries] = useState([])
+  useEffect(() => {
+    api.get('/searches/countries').then(({ data }) => setCountries(data || [])).catch(() => {})
   }, [])
   const [editing, setEditing] = useState(null) // null | 'new' | search_id
   const [editData, setEditData] = useState({})
@@ -71,6 +80,7 @@ export default function SearchManager() {
     setEditData({
       name: s.name, search_mode: s.search_mode, search_term: s.search_term || '',
       direct_url: s.direct_url || '', location: s.location || 'United States',
+      country: s.country || DEFAULT_COUNTRY,
       is_remote: s.is_remote === true ? 'true' : s.is_remote === false ? 'false' : '',
       job_type: s.job_type || 'fulltime', hours_old: s.hours_old || 24,
       results_wanted: s.results_wanted || 50, sources: s.sources || [],
@@ -334,6 +344,15 @@ export default function SearchManager() {
               <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Location</label>
               <input type="text" value={ed.location} onChange={e => setEd({ location: e.target.value })}
                 className="border rounded px-2 py-1.5 text-sm w-full dark:bg-gray-700 dark:text-gray-200 dark:border-gray-600" />
+            </div>
+            <div>
+              {/* Picks the Indeed site and its API country header. A country that
+                  disagrees with Location returns nothing from Indeed. */}
+              <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Country (Indeed site)</label>
+              <select value={ed.country} onChange={e => setEd({ country: e.target.value })}
+                className="border rounded px-2 py-1.5 text-sm w-full dark:bg-gray-700 dark:text-gray-200 dark:border-gray-600">
+                {countries.map(c => <option key={c.value} value={c.value}>{c.label}</option>)}
+              </select>
             </div>
             <div>
               <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Remote</label>

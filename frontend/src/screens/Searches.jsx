@@ -134,10 +134,14 @@ const summaryOf = (s) => {
   return `${short(s.direct_url) || 'no URL'}${last}`
 }
 
+// Matches backend/countries.py DEFAULT_COUNTRY — jobspy's own alias for the US.
+const DEFAULT_COUNTRY = 'usa'
+
 const draftOf = (s) => ({
   name: s.name || '', search_mode: s.search_mode || 'keyword',
   search_term: s.search_term || '', direct_url: s.direct_url || '',
-  location: s.location || '', is_remote: s.is_remote === true ? 'true' : s.is_remote === false ? 'false' : '',
+  location: s.location || '', country: s.country || DEFAULT_COUNTRY,
+  is_remote: s.is_remote === true ? 'true' : s.is_remote === false ? 'false' : '',
   job_type: s.job_type || 'fulltime', hours_old: s.hours_old ?? 24, results_wanted: s.results_wanted ?? 50,
   max_pages: s.max_pages ?? 50, min_fit_score: s.min_fit_score ?? 0, require_salary: !!s.require_salary,
   sources: [...(s.sources || [])],
@@ -188,10 +192,29 @@ const toPayload = (d) => {
     auto_scoring_depth: d.auto_scoring_depth,
     run_interval_minutes: clamp(d.run_interval_minutes, 'run_interval_minutes') ?? 0,
   }
-  // location is a keyword-search field only — sending it for
+  // location and country are keyword-search fields only — sending them for
   // levels_fyi / jobright / freehire / extension searches means nothing.
-  if (d.search_mode === 'keyword') p.location = d.location || 'United States'
+  if (d.search_mode === 'keyword') {
+    p.location = d.location || 'United States'
+    p.country = d.country || DEFAULT_COUNTRY
+  }
   return p
+}
+
+// The country list belongs to the jobspy library, so the backend serves it and
+// this screen keeps no copy. It never changes while the page is open — one fetch
+// per page load, shared by the new-search form and every edit form.
+let countryCache = null
+
+function useCountries() {
+  const [list, setList] = useState(countryCache || [])
+  useEffect(() => {
+    if (countryCache) return
+    api.get('/searches/countries')
+      .then(({ data }) => { countryCache = (data || []).map((c) => [c.value, c.label]); setList(countryCache) })
+      .catch(() => { /* silent — the Select shows its placeholder and the stored value stays untouched */ })
+  }, [])
+  return list
 }
 
 // ── small pieces ─────────────────────────────────────────────────────────────
@@ -225,6 +248,7 @@ const DepthPills = ({ value, onPick }) => (
 function ConfigForm({ d, set }) {
   const m = d.search_mode
   const ext = isExt(m)
+  const countries = useCountries()
   const toggleSrc = (id) => set({ sources: d.sources.includes(id) ? d.sources.filter((x) => x !== id) : [...d.sources, id] })
   const note = noteFor(m)
 
@@ -246,6 +270,8 @@ function ConfigForm({ d, set }) {
     fields.push(
       <Cell key="term" label="Search term" mono value={d.search_term} onChange={(v) => set({ search_term: v })} placeholder="e.g. technical program manager" />,
       <Cell key="loc" label="Location" value={d.location} onChange={(v) => set({ location: v })} placeholder="United States" />,
+      <Cell key="ctry" label="Country" value={d.country} options={countries} onChange={(v) => set({ country: v })}
+        sub="Picks the Indeed site. A mismatch with Location returns nothing." />,
       <Cell key="rem" label="Remote" value={d.is_remote} options={[['', 'Any'], ['true', 'Remote only'], ['false', 'On-site only']]} onChange={(v) => set({ is_remote: v })} />,
       <Cell key="jt" label="Job type" value={d.job_type} options={[['fulltime', 'Full-time'], ['parttime', 'Part-time'], ['contract', 'Contract']]} onChange={(v) => set({ job_type: v })} />,
       <Cell key="ho" label="Hours old · 0–720" mono type="number" min={BOUNDS.hours_old[0]} max={BOUNDS.hours_old[1]} value={d.hours_old} onChange={(v) => set({ hours_old: v })} />,

@@ -18,8 +18,12 @@ def _board_logger(name):
     return logger
 
 
-def _fake_jobspy(rows, log_errors=()):
-    """Install a stand-in jobspy module whose scrape_jobs returns rows and emits log_errors on non-propagating loggers, like the real library does."""
+def _fake_jobspy(rows, log_errors=(), level=logging.ERROR):
+    """Install a stand-in jobspy module whose scrape_jobs returns rows and emits log_errors on non-propagating loggers, like the real library does.
+
+    `level` is the level the board reports at. The Indeed scraper reports an HTTP
+    failure at INFO, so a test that passes logging.ERROR proves nothing about it.
+    """
     import pandas as pd
 
     # loggers must exist before _capture_source_errors() enumerates them
@@ -27,7 +31,7 @@ def _fake_jobspy(rows, log_errors=()):
 
     def scrape_jobs(**kwargs):
         for logger, (_, msg) in zip(boards, log_errors):
-            logger.error(msg)
+            logger.log(level, msg)
         return pd.DataFrame(rows)
 
     mod = types.ModuleType("jobspy")
@@ -102,6 +106,60 @@ def test_breakdown_records_a_refused_board(test_db, monkeypatch):
     assert bd["google"]["error"] == "initial cursor not found"
     # the overall run still succeeded — the failure lives per source
     assert result["error"] is None
+
+
+# jobspy/indeed/__init__.py reports an HTTP failure through log.info, with this
+# exact wording. A WARNING threshold never saw it, so no Indeed failure could
+# reach source_breakdown at all.
+INDEED_INFO_FAILURE = (
+    "responded with status code: 503 "
+    "(submit GitHub issue if this appears to be a bug)"
+)
+
+
+def test_breakdown_records_an_indeed_failure_reported_at_info(test_db, monkeypatch):
+    """The real Indeed failure path: INFO level, the library's own message text."""
+    from backend.scraper.sources.jobspy import _run_sync
+
+    _fake_jobspy(
+        [_row("linkedin", "Product Manager", "Beta", "https://linkedin.test/c")],
+        log_errors=[("JobSpy:Indeed", INDEED_INFO_FAILURE)],
+        level=logging.INFO,
+    )
+    search = _search(test_db, ["indeed", "linkedin"])
+
+    result = _run_sync(search)
+
+    bd = result["source_breakdown"]
+    assert bd["indeed"]["error"] == "503"
+    assert bd["linkedin"]["seen"] == 1
+
+
+def test_ordinary_info_chatter_stays_out_of_the_breakdown(test_db, monkeypatch):
+    """Lowering the threshold must not turn every progress line into an error; jobspy logs "finished scraping" at INFO on every successful board."""
+    from backend.scraper.sources.jobspy import _run_sync
+
+    _fake_jobspy(
+        [_row("indeed", "Program Manager", "Acme", "https://indeed.test/a")],
+        log_errors=[("JobSpy:Indeed", "finished scraping")],
+        level=logging.INFO,
+    )
+    search = _search(test_db, ["indeed"])
+
+    result = _run_sync(search)
+
+    assert "error" not in result["source_breakdown"]["indeed"]
+    assert result["source_breakdown"]["indeed"]["seen"] == 1
+
+
+def test_a_warning_record_still_counts_whatever_it_says(test_db, monkeypatch):
+    """The content filter gates INFO only — WARNING and above keep the old contract."""
+    from backend.scraper.sources.jobspy import _capture_source_errors
+
+    _board_logger("JobSpy:ZipRecruiter")
+    with _capture_source_errors(["zip_recruiter"]) as capture:
+        logging.getLogger("JobSpy:ZipRecruiter").warning("bad proxy")
+    assert capture.errors == {"zip_recruiter": "bad proxy"}
 
 
 def test_board_logger_does_not_propagate_to_root():
@@ -179,6 +237,71 @@ async def test_scrape_log_flags_a_failed_source(test_db, monkeypatch):
     assert log.is_warning is True
     assert log.source_breakdown["zip_recruiter"]["error"] == "403"
     assert log.source_breakdown["indeed"]["seen"] == 9
+
+
+@pytest.mark.asyncio
+async def test_scrape_log_flags_a_board_that_returned_nothing(test_db, monkeypatch):
+    """The silent zero: Indeed answers 200 with an empty list while LinkedIn works.
+
+    is_warning used to be read off the TOTAL, so 40 + 0 was recorded as healthy.
+    """
+    import backend.scraper.orchestrator as orch
+
+    search = _search(test_db, ["indeed", "linkedin"])
+
+    async def fake_run_search(s, proxy_url=None):
+        return {
+            "jobs_found": 40, "new_jobs": 12, "error": None, "duration": 1.0,
+            "source_breakdown": {
+                "indeed": {"seen": 0, "new": 0},
+                "linkedin": {"seen": 40, "new": 12},
+            },
+        }
+
+    monkeypatch.setattr(orch, "run_search", fake_run_search)
+    await orch._run_search_by_id(str(search.id), auto_score=False)
+
+    log = test_db.query(ScrapeLog).filter(ScrapeLog.search_id == search.id).one()
+    assert log.is_warning is True
+    # The empty board is not a failed one — the breakdown keeps the distinction.
+    assert "error" not in log.source_breakdown["indeed"]
+
+
+def test_empty_sources_ignores_a_board_whose_rows_were_filtered_out():
+    """A board that returned rows the title filters dropped is not a silent zero."""
+    from backend.scraper.orchestrator import empty_sources
+
+    assert empty_sources({"indeed": {"seen": 0, "new": 0, "filtered": 7}}) == []
+    assert empty_sources({"indeed": {"seen": 0, "new": 0, "error": "403"}}) == []
+    assert empty_sources({"indeed": {"seen": 0, "new": 0}}) == ["indeed"]
+    assert empty_sources(None) == []
+
+
+@pytest.mark.asyncio
+async def test_run_summary_names_a_board_that_returned_nothing(test_db, monkeypatch):
+    import backend.api.routes_searches as rs
+    import backend.scraper.orchestrator as orch
+
+    search = _search(test_db, ["indeed", "linkedin"])
+
+    async def fake_run(search_id, auto_score=None):
+        return {
+            "jobs_found": 40, "new_jobs": 12, "error": None, "duration": 1.0,
+            "source_breakdown": {
+                "indeed": {"seen": 0, "new": 0},
+                "linkedin": {"seen": 40, "new": 12},
+            },
+        }
+
+    monkeypatch.setattr(orch, "_run_search_by_id", fake_run)
+
+    captured = {}
+    monkeypatch.setattr("backend.job_monitor.launch_background",
+                        lambda job_type, coro_func, **kw: captured.setdefault("coro", coro_func) and "r")
+    await rs.trigger_search(str(search.id), db=test_db)
+
+    summary = await captured["coro"]()
+    assert "no rows from indeed" in summary
 
 
 @pytest.mark.asyncio

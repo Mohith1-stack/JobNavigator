@@ -709,10 +709,36 @@ END $$;""",
         # counting it while its newest ScrapeLog row is no newer than this stamp.
         "ALTER TABLE searches ADD COLUMN IF NOT EXISTS warning_acknowledged_at TIMESTAMPTZ",
         "ALTER TABLE companies ADD COLUMN IF NOT EXISTS warning_acknowledged_at TIMESTAMPTZ",
+        # searches.country picks the Indeed domain and API country header. The
+        # column arrives WITHOUT a default on purpose: `ADD COLUMN ... DEFAULT x`
+        # writes x into every existing row, and the NULL rows are exactly the
+        # ones _backfill_search_country() below must still read. `SET DEFAULT`
+        # applies to later inserts only, so the two statements are safe in this order.
+        "ALTER TABLE searches ADD COLUMN IF NOT EXISTS country VARCHAR",
+        "ALTER TABLE searches ALTER COLUMN country SET DEFAULT 'usa'",
     ]
     run_migration_statements(db, migrations)
 
+    _backfill_search_country(db)
     _rewrite_retired_status_transitions(db)
+
+
+def _backfill_search_country(db):
+    """One-shot: read a country out of each existing search's location text.
+
+    Only rows whose country is still NULL are visited, so this runs once per
+    row. Rows written after the migration carry the column default.
+    """
+    from backend.countries import country_from_location
+    from backend.models.db import Search
+
+    rows = db.query(Search).filter(Search.country.is_(None)).all()
+    if not rows:
+        return
+    for search in rows:
+        search.country = country_from_location(search.location)
+    db.commit()
+    logger.info("Backfilled searches.country for %d row(s)", len(rows))
 
 
 _RETIRED_STATUS_REMAP = {

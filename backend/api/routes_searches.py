@@ -8,6 +8,7 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 from sqlalchemy.exc import IntegrityError
+from backend.countries import DEFAULT_COUNTRY, normalize_country, supported_countries
 from backend.models.db import get_db, Search, Setting, ScrapeLog, Job, is_acknowledged
 
 logger = logging.getLogger("jobnavigator.routes_searches")
@@ -30,6 +31,7 @@ class SearchCreate(BaseModel):
     search_term: Optional[str] = None
     direct_url: Optional[str] = None
     location: str = "United States"
+    country: str = DEFAULT_COUNTRY
     is_remote: Optional[bool] = None
     job_type: str = "fulltime"
     # Optional so the editor can clear the field: an explicit null falls back to
@@ -69,9 +71,28 @@ def list_searches(db: Session = Depends(get_db)):
     return [_search_to_dict(s, last_log.get(str(s.id))) for s in searches]
 
 
+@router.get("/countries")
+def list_countries():
+    """The countries Indeed supports, straight from the installed jobspy library, so the search form offers exactly what the scraper accepts."""
+    return [{"value": value, "label": label} for value, label in supported_countries()]
+
+
+def _validated_country(value) -> str:
+    """The stored form of a country name, or 400. An unknown name would otherwise reach jobspy and raise mid-scrape."""
+    name = normalize_country(value)
+    if not name:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Unknown country '{value}' — pick one from GET /api/searches/countries",
+        )
+    return name
+
+
 @router.post("")
 def create_search(data: SearchCreate, db: Session = Depends(get_db)):
-    search = Search(**data.model_dump())
+    payload = data.model_dump()
+    payload["country"] = _validated_country(payload["country"])
+    search = Search(**payload)
     db.add(search)
     db.commit()
     return _search_to_dict(search)
@@ -85,11 +106,13 @@ def update_search(search_id: str, updates: dict, db: Session = Depends(get_db)):
 
     allowed = {
         "name", "active", "sources", "search_mode", "search_term", "direct_url",
-        "location", "is_remote", "job_type", "hours_old", "results_wanted",
+        "location", "country", "is_remote", "job_type", "hours_old", "results_wanted",
         "title_include_keywords", "title_exclude_keywords", "company_filter",
         "company_exclude", "exclude_active_companies", "max_pages", "min_fit_score",
         "require_salary", "auto_scoring_depth", "run_interval_minutes",
     }
+    if "country" in updates:
+        updates["country"] = _validated_country(updates["country"])
     for key, value in updates.items():
         if key in allowed:
             setattr(search, key, value)
@@ -246,7 +269,7 @@ async def test_search(search_id: str, db: Session = Depends(get_db)):
         "results_wanted": search.results_wanted or 50,
         "hours_old": search.hours_old or 24,
         "job_type": search.job_type or "fulltime",
-        "country_indeed": "USA",
+        "country_indeed": search.country or DEFAULT_COUNTRY,
         "verbose": 2,
     }
 
@@ -735,6 +758,7 @@ def _search_to_dict(s: Search, last_log=None) -> dict:
         "search_term": s.search_term,
         "direct_url": s.direct_url,
         "location": s.location,
+        "country": s.country,
         "is_remote": s.is_remote,
         "job_type": s.job_type,
         "hours_old": s.hours_old,

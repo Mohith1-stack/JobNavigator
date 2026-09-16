@@ -10,6 +10,7 @@ from datetime import datetime, timezone
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
+from backend.countries import DEFAULT_COUNTRY
 from backend.models.db import SessionLocal, Search, Job, Setting, get_existing_external_ids
 from backend.scraper._shared.dedup import make_external_id, make_content_hash
 
@@ -96,21 +97,33 @@ def _condense_error(msg: str) -> str:
     return text[:120]
 
 
+# The Indeed scraper reports an HTTP failure through log.info, not log.warning
+# (jobspy/indeed/__init__.py: "responded with status code: <code>"), so a
+# WARNING threshold never saw an Indeed failure. The threshold is INFO now, and
+# this pattern — not the level — decides what an INFO record has to say to count
+# as a failure, so ordinary progress lines ("finished scraping") stay out of
+# source_breakdown.
+_INFO_FAILURE_RE = re.compile(r"responded with status code:\s*\d+", re.IGNORECASE)
+
+
 class _SourceLogCapture(logging.Handler):
-    """Keeps the first WARNING+ record each JobSpy board logger emits."""
+    """Keeps the first failure record each JobSpy board logger emits."""
 
     def __init__(self):
-        super().__init__(level=logging.WARNING)
+        super().__init__(level=logging.INFO)
         self.errors = {}
 
     def emit(self, record):
         try:
             if not str(record.name).startswith("JobSpy"):
                 return
+            message = record.getMessage()
+            if record.levelno < logging.WARNING and not _INFO_FAILURE_RE.search(message):
+                return
             key = _site_key(record.name)
             if not key or key in self.errors:
                 return
-            self.errors[key] = _condense_error(record.getMessage())
+            self.errors[key] = _condense_error(message)
         except Exception:  # a logging handler must never break the scrape
             pass
 
@@ -207,7 +220,7 @@ def _run_sync(search, proxy_url: str = None) -> dict:
             "results_wanted": search.results_wanted or 50,
             "hours_old": search.hours_old or 24,
             "job_type": search.job_type or "fulltime",
-            "country_indeed": "USA",
+            "country_indeed": search.country or DEFAULT_COUNTRY,
             "verbose": 2,
         }
 
@@ -320,9 +333,11 @@ def _run_sync(search, proxy_url: str = None) -> dict:
                     location=_clean(row.get("location")),
                     # JobSpy's own `is_remote` is a substring test over the whole
                     # description, so "remote state" (Terraform) and "remote dev
-                    # environments" mark a job remote. It is deliberately unused;
-                    # `work_from_home_type` below is Indeed's structured field and
-                    # is trustworthy. Everything else falls to the JD cascade.
+                    # environments" mark a job remote. It is deliberately unused.
+                    # `work_from_home_type` below is no help either: in
+                    # python-jobspy 1.1.82 only the Naukri scraper sets that field.
+                    # Indeed, LinkedIn, ZipRecruiter and Google rows always carry
+                    # None there, so the arrangement comes from the JD cascade.
                     remote=None,
                     status="new",
                     seen=False,

@@ -11,6 +11,7 @@ from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import backref, column_property, declarative_base, deferred, relationship, sessionmaker
 
 from backend.config import DATABASE_URL
+from backend.countries import DEFAULT_COUNTRY
 
 # Pool args are Postgres-specific; SQLite (used in CI tests via DATABASE_URL=sqlite:///:memory:)
 # rejects pool_size/max_overflow.
@@ -68,6 +69,11 @@ class Search(Base):
     search_term = Column(String, nullable=True)
     direct_url = Column(String, nullable=True)
     location = Column(String, default="United States")
+    # Picks the Indeed domain and the `indeed-co` API header. A US domain answers
+    # a question about a Canadian city with HTTP 200 and an empty result list, so
+    # the country is an explicit field instead of a literal. Values are jobspy
+    # Country aliases — see backend/countries.py.
+    country = Column(String, default=DEFAULT_COUNTRY)
     is_remote = Column(Boolean, nullable=True)  # null=any
     job_type = Column(String, default="fulltime")
     hours_old = Column(Integer, default=24)

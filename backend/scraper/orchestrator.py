@@ -109,6 +109,37 @@ def describe_source_errors(breakdown) -> str:
     return " · ".join(f"{key}: {err}" for key, err in source_errors(breakdown))
 
 
+def empty_sources(breakdown) -> list:
+    """Configured boards that contributed nothing at all — no kept posting, no filtered one, and no reported failure."""
+    if not isinstance(breakdown, dict):
+        return []
+    return [
+        str(key) for key, val in breakdown.items()
+        if isinstance(val, dict) and not val.get("error")
+        and not (val.get("seen") or 0) and not (val.get("filtered") or 0)
+    ]
+
+
+def run_is_warning(result: dict, breakdown) -> bool:
+    """True when one run needs a human look.
+
+    Three conditions, any of which is enough:
+    | Condition                             | Example                          |
+    | ------------------------------------- | -------------------------------- |
+    | A board refused the request           | ZipRecruiter 403                 |
+    | A configured board returned no rows   | Indeed 0 while LinkedIn gave 40  |
+    | The run found nothing and said nothing| every board empty, error is None |
+
+    The per-board test matters because the total hides it: LinkedIn 40 plus
+    Indeed 0 sums to 40, and the run used to be recorded as healthy.
+    """
+    return bool(
+        source_errors(breakdown)
+        or empty_sources(breakdown)
+        or (result.get("jobs_found", 0) == 0 and not result.get("error"))
+    )
+
+
 def filtered_count(breakdown) -> int:
     """Postings the title filters rejected, summed across boards; rejected postings are still written as `ignored` for dedup, so a run's stored rows can exceed its "N seen" count."""
     if not isinstance(breakdown, dict):
@@ -146,7 +177,14 @@ def summarize_search_run(label: str, result: dict) -> str:
     # Name the boards that hard-failed, so "9 seen, +0 new" can't be mistaken
     # for a quiet day on every configured source.
     failed = describe_source_errors(breakdown)
-    return f"{summary} · {failed}" if failed else summary
+    if failed:
+        summary += f" · {failed}"
+    # A board that answered with an empty list is the silent case the total
+    # hides, so name it too.
+    empty = empty_sources(breakdown)
+    if empty:
+        summary += f" · no rows from {', '.join(empty)}"
+    return summary
 
 
 def _source_for_search(search: Search) -> str:
@@ -231,12 +269,7 @@ async def run_all(force: bool = False):
                 jobs_found=result.get("jobs_found", 0),
                 new_jobs=result.get("new_jobs", 0),
                 error=result.get("error"),
-                # A board that refused the request is a warning even when the
-                # other boards returned rows.
-                is_warning=bool(
-                    failed_sources
-                    or (result.get("jobs_found", 0) == 0 and not result.get("error"))
-                ),
+                is_warning=run_is_warning(result, breakdown),
                 source_breakdown=breakdown,
                 duration_seconds=result.get("duration", 0),
             )
@@ -319,12 +352,8 @@ async def _run_search_by_id(search_id: str, auto_score: Optional[bool] = None) -
             jobs_found=result.get("jobs_found", 0),
             new_jobs=result.get("new_jobs", 0),
             error=result.get("error"),
-            # R3-A-03: a board that refused the request is a warning even when
-            # the other boards returned rows.
-            is_warning=bool(
-                failed_sources
-                or (result.get("jobs_found", 0) == 0 and not result.get("error"))
-            ),
+            # R3-A-03 plus the silent zero: see run_is_warning().
+            is_warning=run_is_warning(result, breakdown),
             source_breakdown=breakdown,
             duration_seconds=result.get("duration", 0),
         )
