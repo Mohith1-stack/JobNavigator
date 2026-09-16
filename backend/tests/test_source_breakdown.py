@@ -306,6 +306,49 @@ def test_a_board_whose_rows_the_filter_rejects_is_not_reported_empty(test_db, mo
     assert empty_sources(second["source_breakdown"]) == []
 
 
+def test_a_frame_without_a_site_column_reports_no_evidence(test_db, monkeypatch):
+    """Rows but no `site` column: the run cannot say which board sent what.
+
+    Writing `returned: 0` for every board would make the run report "no rows
+    from indeed, linkedin" while it stored jobs. No key at all puts the run in
+    the bucket empty_sources() already skips.
+    """
+    import pandas as pd
+    from backend.scraper.orchestrator import empty_sources
+    from backend.scraper.sources.jobspy import _run_sync
+
+    mod = _fake_jobspy([])
+    rows = [_row("indeed", "Program Manager", "Acme", "https://indeed.test/a"),
+            _row("linkedin", "Product Manager", "Beta", "https://linkedin.test/b")]
+    frame = pd.DataFrame(rows).drop(columns=["site"])
+    mod.scrape_jobs = lambda **kwargs: frame
+    search = _search(test_db, ["indeed", "linkedin"])
+
+    result = _run_sync(search)
+
+    assert result["jobs_found"] == 2, "the rows are still scraped and stored"
+    for key, entry in result["source_breakdown"].items():
+        assert "returned" not in entry, f"{key} must carry no evidence: {entry}"
+    assert empty_sources(result["source_breakdown"]) == []
+
+
+def test_an_empty_frame_is_evidence_that_every_board_returned_nothing(test_db, monkeypatch):
+    """The control: an empty frame is a real answer, so every board gets 0."""
+    from backend.scraper.orchestrator import empty_sources
+    from backend.scraper.sources.jobspy import _run_sync
+
+    _fake_jobspy([])
+    search = _search(test_db, ["indeed", "linkedin"])
+
+    result = _run_sync(search)
+
+    assert result["source_breakdown"] == {
+        "indeed": {"seen": 0, "new": 0, "returned": 0},
+        "linkedin": {"seen": 0, "new": 0, "returned": 0},
+    }
+    assert sorted(empty_sources(result["source_breakdown"])) == ["indeed", "linkedin"]
+
+
 def test_a_board_that_returned_nothing_is_still_reported_empty(test_db, monkeypatch):
     """The control: the same shape, with a board that really delivered no rows."""
     from backend.scraper.orchestrator import empty_sources

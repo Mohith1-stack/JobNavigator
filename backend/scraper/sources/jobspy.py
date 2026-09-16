@@ -165,13 +165,18 @@ def _merge_source_errors(breakdown: dict, errors: dict) -> dict:
 def _count_returned(breakdown: dict, jobs_df) -> dict:
     """Write `returned`, the unfiltered row count, for every configured board.
 
-    Every configured board gets the key, zero included, so a reader can tell a
-    board that delivered nothing from one that an older build never counted.
+    An empty frame is real evidence, so every board gets 0. A frame that holds
+    rows but no `site` column is no evidence at all: the key is left off
+    entirely, because empty_sources() skips an entry without it, and a run that
+    stored jobs must never report "no rows from linkedin, indeed".
     """
-    counts = {}
-    if jobs_df is not None and not jobs_df.empty and "site" in jobs_df.columns:
-        counts = {str(site).lower(): int(n)
-                  for site, n in jobs_df["site"].value_counts().items()}
+    empty = jobs_df is None or jobs_df.empty
+    if not empty and "site" not in jobs_df.columns:
+        return breakdown
+    counts = {} if empty else {
+        str(site).lower(): int(n)
+        for site, n in jobs_df["site"].value_counts().items()
+    }
     for key in set(breakdown) | set(counts):
         breakdown.setdefault(key, {"seen": 0, "new": 0})["returned"] = counts.get(key, 0)
     return breakdown
