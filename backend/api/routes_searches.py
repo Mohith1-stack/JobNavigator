@@ -8,7 +8,7 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 from sqlalchemy.exc import IntegrityError
-from backend.countries import DEFAULT_COUNTRY, normalize_country, supported_countries
+from backend.countries import DEFAULT_COUNTRY, compose_location, normalize_country, supported_countries
 from backend.models.db import get_db, Search, Setting, ScrapeLog, Job, is_acknowledged
 
 logger = logging.getLogger("jobnavigator.routes_searches")
@@ -265,7 +265,7 @@ async def test_search(search_id: str, db: Session = Depends(get_db)):
     kwargs = {
         "site_name": sources,
         "search_term": search.search_term or "",
-        "location": search.location or "United States",
+        "location": compose_location(search.location, search.country),
         "results_wanted": search.results_wanted or 50,
         "hours_old": search.hours_old or 24,
         "job_type": search.job_type or "fulltime",

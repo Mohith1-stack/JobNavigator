@@ -81,3 +81,52 @@ def country_from_location(location) -> str:
         if name:
             return name
     return DEFAULT_COUNTRY
+
+
+def split_country_suffix(location) -> tuple:
+    """(place, country) — free location text without its country, and that country.
+
+    `normalize_country()` decides what a country segment is, so "Toronto, ON"
+    keeps its region and "Toronto, Canada" gives ("Toronto", "canada"). Text that
+    is only a country name gives an empty place: a country carries no city or
+    region. Text with no country segment comes back unchanged, with None.
+    """
+    text = str(location or "").strip().strip(",").strip()
+    if not text:
+        return "", None
+    head, _, tail = text.rpartition(",")
+    name = normalize_country(tail.strip())
+    if name is None:
+        return text, None
+    return head.strip().strip(",").strip(), name
+
+
+def compose_location(location, country) -> str:
+    """The one location string every jobspy board receives.
+
+    `location` holds a city or a region, and `country` is the single country
+    source, so the country segment of `location` is dropped and the label of
+    `country` replaces it. Indeed reads the country from `country_indeed` only,
+    while LinkedIn, ZipRecruiter and Google read no country at all — one string
+    with the country spelled out satisfies all four.
+
+    An empty place gives the label alone, because "Canada" is a valid query and
+    ", Canada" is not.
+
+    Text that names no place keeps the country too. There is no reliable test
+    for "not a place", and the measured alternative is worse: LinkedIn answers a
+    bare "Remote" with jobs in Taiwan, Japan, India, Canada and Ireland, which is
+    the country control this function exists to restore. "Remote, United States"
+    instead reaches Remote, Oregon, so neither spelling is a remote search. The
+    `is_remote` field is: an empty location with `is_remote` on returns US-wide
+    remote rows on both boards. The forms say so.
+    """
+    place, _ = split_country_suffix(location)
+    labels = dict(supported_countries())
+    # A stored country that jobspy no longer knows falls back the same way
+    # `country_indeed` does. The `if not label` branch guards the day jobspy
+    # drops DEFAULT_COUNTRY too: the caller gets the place text, never a crash.
+    label = labels.get(normalize_country(country) or "") or labels.get(DEFAULT_COUNTRY)
+    if not label:
+        return place
+    return f"{place}, {label}" if place else label

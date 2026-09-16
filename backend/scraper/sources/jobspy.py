@@ -10,7 +10,7 @@ from datetime import datetime, timezone
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from backend.countries import DEFAULT_COUNTRY
+from backend.countries import DEFAULT_COUNTRY, compose_location
 from backend.models.db import SessionLocal, Search, Job, Setting, get_existing_external_ids
 from backend.scraper._shared.dedup import make_external_id, make_content_hash
 
@@ -236,7 +236,7 @@ def _run_sync(search, proxy_url: str = None) -> dict:
         kwargs = {
             "site_name": sources,
             "search_term": search.search_term or "",
-            "location": search.location or "United States",
+            "location": compose_location(search.location, search.country),
             "results_wanted": search.results_wanted or 50,
             "hours_old": search.hours_old or 24,
             "job_type": search.job_type or "fulltime",
