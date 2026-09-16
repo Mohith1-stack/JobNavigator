@@ -14,10 +14,10 @@ You need Docker (Docker Desktop on Windows/macOS, Docker Engine + Compose on Lin
 git clone https://github.com/vesaias/JobNavigator.git
 cd JobNavigator
 cp .env.example .env
-docker compose up --build -d
+docker compose pull && docker compose up -d
 ```
 
-The first build takes a few minutes (Playwright's Chromium is the big part). Then open `http://localhost`.
+That pulls the release images from GHCR (about 2 GB, Playwright's Chromium is the big part). `docker compose up --build -d` builds the same images from source instead, which takes a few minutes. Then open `http://localhost`.
 
 **Sign in.** The first login asks for an API key. Leave it blank and continue: with no key set, the dashboard is open. Set one right away under **Settings › System › Advanced** (dashboard API key), then sign in again with it. That key is what the Chrome extension will also use.
 
@@ -136,4 +136,4 @@ Backups are `pg_dump` files written on the backup cron; you can trigger one from
 docker compose exec -T db sh -c 'pg_restore -U $POSTGRES_USER -d $POSTGRES_DB --clean --if-exists' < backups/<file>.dump
 ```
 
-Update: `git pull && docker compose up --build -d`. Tables and settings migrate on startup; nothing to run by hand.
+Update: `git pull && docker compose pull && docker compose up -d` (or `--build` if you build from source). Tables and settings migrate on startup; nothing to run by hand.

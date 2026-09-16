@@ -121,10 +121,10 @@ Scrape career pages and aggregators, score jobs against your résumés with an L
 git clone https://github.com/vesaias/JobNavigator.git
 cd JobNavigator
 cp .env.example .env
-docker compose up --build -d
+docker compose pull && docker compose up -d      # prebuilt images from GHCR
 ```
 
-Open `http://localhost`. On first run sign in with a blank key, then set one in Settings › Advanced.
+Open `http://localhost`. To build from source instead (or on ARM), use `docker compose up --build -d`; every release is also published as `ghcr.io/vesaias/jobnavigator-backend` and `-frontend`, pinnable with `JN_IMAGE_TAG=2.1.0` in `.env`. On first run sign in with a blank key, then set one in Settings › Advanced.
 
 **2. Connect a model**
 
