@@ -68,19 +68,17 @@ def normalize_country(value) -> Optional[str]:
 
 
 def country_from_location(location) -> str:
-    """Read a country out of free location text.
+    """Read a country out of free location text, or fall back to DEFAULT_COUNTRY.
 
-    The last comma-separated segment comes first ("Toronto, Canada" -> canada),
-    then the whole trimmed string ("Canada" -> canada). Text that matches
-    neither gives DEFAULT_COUNTRY. This is a one-time guess for the migration
-    backfill, not a runtime substitute for the stored field.
+    `split_country_suffix()` is the one parser: it reads the last comma-separated
+    segment ("Toronto, Canada" -> canada), and text with no comma is that segment
+    ("Canada" -> canada). Text that names no country gives DEFAULT_COUNTRY.
+
+    This is a one-time guess for the migration backfill, not a runtime substitute
+    for the stored field. A caller that must tell a read from a guess calls
+    `split_country_suffix()` itself and looks at the second item.
     """
-    text = str(location or "").strip()
-    for candidate in (text.rsplit(",", 1)[-1], text):
-        name = normalize_country(candidate.strip())
-        if name:
-            return name
-    return DEFAULT_COUNTRY
+    return split_country_suffix(location)[1] or DEFAULT_COUNTRY
 
 
 def split_country_suffix(location) -> tuple:
@@ -113,13 +111,20 @@ def compose_location(location, country) -> str:
     An empty place gives the label alone, because "Canada" is a valid query and
     ", Canada" is not.
 
-    Text that names no place keeps the country too. There is no reliable test
-    for "not a place", and the measured alternative is worse: LinkedIn answers a
-    bare "Remote" with jobs in Taiwan, Japan, India, Canada and Ireland, which is
-    the country control this function exists to restore. "Remote, United States"
-    instead reaches Remote, Oregon, so neither spelling is a remote search. The
-    `is_remote` field is: an empty location with `is_remote` on returns US-wide
-    remote rows on both boards. The forms say so.
+    Text that names no place keeps the country too. There is no reliable test for
+    "not a place", and "Remote" was measured on both boards with country "usa":
+
+    | board    | "Remote"                         | "Remote, United States"      |
+    |----------|----------------------------------|------------------------------|
+    | indeed   | 20 rows, all "Remote, US"        | 20 rows, all "Remote, US"    |
+    | linkedin | 20 rows in Taiwan, Japan, India, | 20 rows, all in one Oregon   |
+    |          | Canada, Ireland and 5 US states  | county (it reads Remote, OR) |
+
+    So the country costs Indeed nothing, and on LinkedIn neither spelling is a
+    remote search — but only the composed one honours the country the user
+    picked. `is_remote` is the field that works: an empty location with
+    `is_remote` on returned 40 US-wide remote rows across both boards. The forms
+    say so.
     """
     place, _ = split_country_suffix(location)
     labels = dict(supported_countries())

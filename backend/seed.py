@@ -749,7 +749,7 @@ def _backfill_search_country(db):
     Only rows whose country is still NULL are visited, so this runs once per
     row. Rows written after the migration carry the column default.
     """
-    from backend.countries import country_from_location
+    from backend.countries import DEFAULT_COUNTRY, country_from_location, split_country_suffix
     from backend.models.db import Search
 
     rows = db.query(Search).filter(Search.country.is_(None)).all()
@@ -757,30 +757,53 @@ def _backfill_search_country(db):
         return
     for search in rows:
         search.country = country_from_location(search.location)
+        # A region code is not a country: "Toronto, ON" reads as no country at
+        # all and falls to DEFAULT_COUNTRY. That guess used to be nearly
+        # harmless, because LinkedIn still received the region. The scraper now
+        # appends the guessed country to it, so an operator must be able to see
+        # which rows were guessed and correct them.
+        if str(search.location or "").strip() and split_country_suffix(search.location)[1] is None:
+            logger.warning(
+                "Search %s: location %r names no country — the backfill guessed %s",
+                search.name, search.location, DEFAULT_COUNTRY,
+            )
     db.commit()
     logger.info("Backfilled searches.country for %d row(s)", len(rows))
 
 
 def _strip_country_from_search_location(db):
-    """Remove the country segment from each search's location text.
+    """Remove the country segment from each keyword search's location text.
 
-    The migration needs this once. It stays cheap and idempotent afterwards, and
-    it also cleans a country a user types into the field later.
+    The migration needs this once. It is idempotent afterwards, and it also
+    cleans a country a user types into the field later.
 
-    `location` now holds a city or a region, and `country` is the single country
+    `location` holds a city or a region, and `country` is the single country
     source. The scraper appends the label of `country` to the location, so a
     country left in the text would appear twice.
 
-    `normalize_country()` decides what a country segment is, so "Toronto, ON"
-    stays whole and "Toronto, Canada" becomes "Toronto". A row whose segment
-    disagrees with the stored country keeps the country, because the user picked
-    that field; the row is logged.
+    Three rules keep the result stable and honest:
+
+    1. `normalize_country()` decides what a country segment is, so "Toronto, ON"
+       stays whole and "Toronto, Canada" becomes "Toronto".
+    2. The last segment always stays. "Luxembourg, Luxembourg" becomes
+       "Luxembourg" and stops there; without this rule every restart would strip
+       one more segment and widen the search to the whole country.
+    3. A row whose text disagrees with the stored country keeps the country,
+       because the user picked that field, and the row is logged.
+
+    Only `keyword` rows are touched. They are the only rows the jobspy
+    composition reads. `jobright` reads `search.location` raw and drops the
+    parameter when the text is empty, so rewriting its rows would move this same
+    defect to a board this change never measured.
     """
     from backend.countries import split_country_suffix
     from backend.models.db import Search
 
     changed = 0
-    for search in db.query(Search).filter(Search.location.isnot(None)).all():
+    rows = db.query(Search).filter(
+        Search.location.isnot(None), Search.search_mode == "keyword"
+    ).all()
+    for search in rows:
         place, found = split_country_suffix(search.location)
         if found is None:
             continue
@@ -789,6 +812,15 @@ def _strip_country_from_search_location(db):
                 "Search %s: location said %s but country is %s — keeping country",
                 search.name, found, search.country,
             )
+        if not place:
+            continue      # only a country name: there is no place to keep
+        # Repeat inside this one pass, so a name that repeats itself settles now
+        # instead of losing a segment on every later restart.
+        while True:
+            inner, more = split_country_suffix(place)
+            if more is None or not inner:
+                break
+            place = inner
         search.location = place
         changed += 1
     if changed:
