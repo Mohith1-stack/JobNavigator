@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **Posting zoom:** a + / − floater top-right of the posting steps the frame from 50 to 200 %; the level is remembered per browser. Double-click resets. Settings › General › Feed hides it.
+
 ### Fixed
 - **LinkedIn Personal login** (by @volkotyk, #16): the session check asks Voyager `/me` instead of probing feed markup that no longer exists, and the login form is filled by `autocomplete` attribute since LinkedIn's ids are generated per render; the refresh script shares both helpers.
 

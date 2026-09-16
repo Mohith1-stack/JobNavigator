@@ -18,7 +18,7 @@ The shell (`Shell.jsx`) plus the primitive layer (`ui.jsx`), the token sheet (`t
 - **Status & text** — `Tag` (`tone`: none/neutral/accent/good/warn/bad/**ai**, `busy`), `Dot` (tones incl. `seg-on`/`seg-off`), `Chip`, `GlyphBadge` (`tone`: accent/bad/neutral/ai/outline/none, `on`, `mono`, `busy`), `Notice` (`tone`: warn/bad/quiet, `action`), `Check`/`Radio`/`Switch`/`Segmented` (options carry `dots`/`dotColor`/`tone`; `variant="inset"` is the framed two-cell toggle), `Meter` (0-1 fill), `ScoreRing` (`size` sm/34px or md/44px; `value`/`label`/`busy`; ring by default, or per-theme `pill`/`bar`/`ascii` — see "shape switches" below), `Spinner` (`weight="bold"`; a segmented block-loader instead of an arc when `--loader-style` is `blocks`).
 - **Type** — `Label`, `Helper` (`size="xs"`, `onClick`), `Mono` (`code` for a fixed-advance run like a cron string or id; without it, a numeral run on `--numeral-face`), `Heading` (`strong` for the medium/semibold title face), `PageTitle`, `Link`/`NavLink`.
 - **Glyphs** — `CopyGlyph`, `FlaskGlyph`, `CheckGlyph`, `CrossGlyph`: hand-drawn SVGs in `currentColor`, replacing Unicode symbols that fell back to missing-glyph boxes or an uncontrolled symbol font on Linux/Chromium.
-- **Misc** — `ShowMore` (pager), `RemoveLink`/`RemoveX`/`MoveArrows` (list-row affordances), `ToastCard` (`kind`: progress/success/error/undo — the box only; `Toast.jsx` owns the taxonomy and stack).
+- **Misc** — `ShowMore` (pager), `RemoveLink`/`RemoveX`/`MoveArrows` (list-row affordances), `ToastCard` (`kind`: progress/success/error/undo — the box only; `Toast.jsx` owns the taxonomy and stack), `ZoomFloater` (`zoom`/`onIn`/`onOut`/`onReset` — the vertical + / − pill that floats over the Feed's posting; idles at `.55`, the caller pins it and owns the level).
 
 Every primitive takes `style` (layout only) and `className` (appended after its own hover class). Interactive ones are keyboard-operable through the internal `kb()` helper (tab stop, role, Enter/Space) with the right `aria-*`.
 
@@ -69,6 +69,8 @@ Where each one draws:
 - **Header** — the primary AI button reads `✦ Tailoring…` at `opacity .55` and does nothing while a tailor runs (`disabled` would repaint it as *unavailable* rather than *working*); the ⋯ menu's `✦ Re-tailor résumé` is hidden for the same span.
 
 Light and Full depth are **not** distinguished visually anywhere.
+
+**Posting zoom.** The posting frame (live or cached) is zoomed by scaling the *element* — `transform: scale(z/100)` with `transform-origin: 0 0` and `width`/`height` at `(10000/z)%` — inside a `position:relative; overflow:hidden` wrapper, so a cross-origin page reflows to the new width instead of being cropped and the pane's own box never moves. `ZoomFloater` is the control; the level (50–200 in tens) lives in `localStorage.jobnavigator_post_zoom`, one level for every posting. The `feed_zoom_floater` setting hides the control only — what is on screen keeps the level it had.
 
 ## Routes
 

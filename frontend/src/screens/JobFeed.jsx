@@ -4,7 +4,7 @@ import api from '../api'
 import { useToasts, ToastStack } from '../Toast'
 import ConfirmDialog from '../ConfirmDialog'
 import { useEscape, useSettled, useSingleOpen, useWarm, NBSP, DASH } from '../hooks'
-import { Button, Card, Check as UICheck, CheckGlyph, CopyGlyph, CrossGlyph, FooterRow, GlyphBadge, Heading, HeaderRow, Helper, IconButton, Input, kb, Label, Link, Menu, MenuItem, Meter, ModalPanel, NavLink, PageTitle, Pill, Row, Rule, ScoreRing, SearchInput, SectionHead, Segmented, Spinner, TableHead, TableRow } from '../ui'
+import { Button, Card, Check as UICheck, CheckGlyph, CopyGlyph, CrossGlyph, FooterRow, GlyphBadge, Heading, HeaderRow, Helper, IconButton, Input, kb, Label, Link, Menu, MenuItem, Meter, ModalPanel, NavLink, PageTitle, Pill, Row, Rule, ScoreRing, SearchInput, SectionHead, Segmented, Spinner, TableHead, TableRow, ZOOM_MAX, ZOOM_MIN, ZoomFloater } from '../ui'
 import { ANALYZE, SCORE_RESUME, TAILOR, activityText, feedActivity, flightDetail, flightTypes, ghostTabs, tabBusy, tabBusyHint, tailorMarkTitle } from './feedActivity'
 import { PICK_KEY, clickMods, clickSelection } from './rowSelect'
 
@@ -26,6 +26,16 @@ const FRAME_LOAD_MS = 8000
 // this is that travel plus slack, the window the wrapper clips for.
 const FOLD_MS = 200
 const loadFrameCache = () => { try { return JSON.parse(localStorage.getItem(FRAME_KEY)) || {} } catch { return {} } }
+// Posting zoom: one level for every posting, per browser (not per job) — set it
+// once and every frame opens at that size. 50–200 in 10-point steps; anything
+// else in storage is clamped and snapped on read, so a hand-edited value can't
+// put the pane at a size the floater can't step out of.
+const ZOOM_KEY = 'jobnavigator_post_zoom'
+const clampZoom = (v) => {
+  const n = Math.round(Number(v) / 10) * 10
+  return Number.isFinite(n) ? Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, n)) : 100
+}
+const loadZoom = () => { try { const v = localStorage.getItem(ZOOM_KEY); return v == null || v === '' ? 100 : clampZoom(v) } catch { return 100 } }
 const hostOf = (u) => { try { return new URL(u, window.location.origin).host } catch { return '' } }
 
 // ── helpers ──────────────────────────────────────────────────────────────
@@ -194,6 +204,11 @@ export default function V2JobFeed() {
   useEffect(() => { try { localStorage.setItem(UI_KEY, JSON.stringify({ headOpen, reportOpen, breakdownOpen, keywordOpen, reqOpen, reqFilter, showMatched })) } catch {} }, [headOpen, reportOpen, breakdownOpen, keywordOpen, reqOpen, reqFilter, showMatched])
   const [viewCached, setViewCached] = useState(false)
   const [cachedHtml, setCachedHtml] = useState(null)
+  // Posting zoom. `postZoom` is what the frames render at whether or not the
+  // floater is shown — turning the control off hides the affordance, it does not
+  // resize what is already on screen; `feed_zoom_floater` only gates the pill.
+  const [postZoom, setPostZoom] = useState(loadZoom)
+  const [zoomFloater, setZoomFloater] = useState(true)
   const [frameOk, setFrameOk] = useState(true)          // true=render the live frame, false=known-blocked (extension off)
   // The frame is remounted per job (key) so switching jobs doesn't show the previous posting mid-load.
   // frameLoadId: its frame is still loading (cover up). frameDeadId: it never fired load within FRAME_LOAD_MS, so falls through to the blocked panel.
@@ -810,10 +825,30 @@ export default function V2JobFeed() {
     setFrameLoadId((c) => (c === id ? null : c))
   }, [])
 
+  // Zoom is the ELEMENT's transform, not anything inside the document — that is
+  // the only lever a cross-origin frame gives us, and scaling the box while
+  // growing it by the inverse makes the page reflow to the new width instead of
+  // being cropped. The wrapper clips, so the pane's box never moves.
+  const zoomTo = useCallback((v) => {
+    const z = clampZoom(v)
+    setPostZoom(z)
+    try { localStorage.setItem(ZOOM_KEY, String(z)) } catch { /* private mode: the level is just not remembered */ }
+  }, [])
+  const zoomStyle = useMemo(() => ({
+    transform: `scale(${postZoom / 100})`, transformOrigin: '0 0',
+    width: `${10000 / postZoom}%`, height: `${10000 / postZoom}%`,
+  }), [postZoom])
+
   // persona availability (adds a "Persona" option to score/tailor)
   useEffect(() => { api.get('/persona').then(({ data }) => setPersonaAvailable(Object.keys(data?.resume_content || {}).length > 0)).catch(() => { /* silent: Persona is one optional entry in the score modal */ }) }, [])
   // `scoring_default_depth` is the setting the scorer itself falls back to; the Feed's one-click path reads it too.
-  useEffect(() => { api.get('/settings').then(({ data }) => setDefaultDepth(data?.scoring_default_depth === 'full' ? 'full' : 'light')).catch(() => { /* silent: the light default already applies */ }) }, [])
+  // `feed_zoom_floater` rides along: same call, and the default is ON, so only an explicit false hides the pill.
+  useEffect(() => {
+    api.get('/settings').then(({ data }) => {
+      setDefaultDepth(data?.scoring_default_depth === 'full' ? 'full' : 'light')
+      setZoomFloater(!(data?.feed_zoom_floater === false || data?.feed_zoom_floater === 'false'))
+    }).catch(() => { /* silent: the light default already applies */ })
+  }, [])
 
   // ?job=<id> is the job permalink — open that job's detail. The param is kept in
   // the URL (and re-synced below) so the link survives a refresh or a copy-paste.
@@ -1636,7 +1671,15 @@ export default function V2JobFeed() {
                          reach this origin's storage or API) and no allow-scripts — a cleaned
                          snapshot needs neither. srcdoc carries no response CSP, so the sandbox
                          attribute is the whole control (R4-T5-02). */
-                      <iframe title="cached" srcDoc={cachedHtml || '<p style="padding:16px;font-family:sans-serif">Loading cached snapshot…</p>'} sandbox="allow-popups allow-forms" referrerPolicy="no-referrer" style={{ flex: 1, width: '100%', border: 'none', background: 'var(--iframe-bg)' }} />
+                      /* the wrapper is the viewport and the clip: the frame inside it grows by
+                         1/zoom and scales back down, so the wrapper's box never moves */
+                      <div style={{ flex: 1, minHeight: 0, position: 'relative', overflow: 'hidden' }}>
+                        <iframe title="cached" srcDoc={cachedHtml || '<p style="padding:16px;font-family:sans-serif">Loading cached snapshot…</p>'} sandbox="allow-popups allow-forms" referrerPolicy="no-referrer" style={{ position: 'absolute', top: 0, left: 0, border: 'none', background: 'var(--iframe-bg)', ...zoomStyle }} />
+                        {zoomFloater && (
+                          <ZoomFloater zoom={postZoom} onIn={() => zoomTo(postZoom + 10)} onOut={() => zoomTo(postZoom - 10)}
+                            onReset={() => zoomTo(100)} style={{ position: 'absolute', right: 14, top: 14, zIndex: 6 }} />
+                        )}
+                      </div>
                     ) : frameSrc ? (
                       /* optimistic: always try the live frame; only a confirmed block swaps it out. `key` remounts
                          per job/src so the previous posting is gone at once; the cover fills the gap until onLoad fires. */
@@ -1645,10 +1688,17 @@ export default function V2JobFeed() {
                             every one that embeds at all (both Greenhouse hosts, github.careers,
                             careers.docusign) renders byte-identically without it; the rest are
                             blocked by their own framing headers either way (R4-T5-02). */}
-                        <iframe key={`${frameJobId}|${frameSrc}`} title="posting" src={frameSrc}
-                          onLoad={() => settleFrame(frameJobId)} onError={() => settleFrame(frameJobId)}
-                          sandbox="allow-scripts allow-popups allow-forms allow-same-origin"
-                          style={{ flex: 1, width: '100%', border: 'none', background: 'var(--iframe-bg)' }} />
+                        {/* same wrapper-clips-the-scaled-frame pattern as the cached branch */}
+                        <div style={{ flex: 1, minHeight: 0, position: 'relative', overflow: 'hidden' }}>
+                          <iframe key={`${frameJobId}|${frameSrc}`} title="posting" src={frameSrc}
+                            onLoad={() => settleFrame(frameJobId)} onError={() => settleFrame(frameJobId)}
+                            sandbox="allow-scripts allow-popups allow-forms allow-same-origin"
+                            style={{ position: 'absolute', top: 0, left: 0, border: 'none', background: 'var(--iframe-bg)', ...zoomStyle }} />
+                        </div>
+                        {zoomFloater && (
+                          <ZoomFloater zoom={postZoom} onIn={() => zoomTo(postZoom + 10)} onOut={() => zoomTo(postZoom - 10)}
+                            onReset={() => zoomTo(100)} style={{ position: 'absolute', right: 14, top: 14, zIndex: 6 }} />
+                        )}
                         {frameLoadId === frameJobId && (
                           <div style={{ position: 'absolute', inset: 0, background: 'var(--bg)', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 10 }}>
                             <Spinner size={12} />

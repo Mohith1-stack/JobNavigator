@@ -351,6 +351,10 @@ export default function Settings() {
         { kind: 'theme', label: 'Theme', help: 'The app’s look: colours, fonts and shapes. Saved in this browser.' },
         BT('Classic dashboard', 'Open the previous (v1) interface.', 'Open classic UI', null, { href: '/classic' }),
       ]],
+      ['feed', '', 'Feed', 'how postings render in the Jobs pane', [
+        SW('Zoom control on postings', 'The small + / − floater top-right of a posting.', 'Hidden — postings open at last selected zoom level.', 'feed_zoom_floater',
+          { dflt: true, info: 'Zoom is remembered per browser, not per job: set it once and every posting opens at that size. Both the live page and the cached copy are frames, so zoom scales the frame and the page reflows to the new width.' }),
+      ]],
       ['models', 'AI', 'Models', '', [
         { kind: 'pair', label: 'Primary provider · model', help: 'Every AI feature uses this pair unless overridden below.',
           pKey: 'llm_provider', mKey: 'llm_model',
