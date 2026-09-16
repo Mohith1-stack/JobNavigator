@@ -10,6 +10,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 - **Posting zoom:** a + / − floater top-right of the posting steps the frame from 50 to 200 %; the level is remembered per browser. Double-click resets. Settings › General › Feed hides it.
 
+### Changed
+- **Page text is fenced in every prompt:** the job posting (scoring, tailoring, cover letters) and the application question (autofill) go to the model between `<<<JOB POSTING>>>` markers with a one-line notice that it is data, so a posting that carries instructions is read as a posting. Output for ordinary postings is unchanged.
+- **Frontend port 3000** binds to 127.0.0.1; the dashboard is reached through Caddy on port 80 only.
+
 ### Fixed
 - **Location parser, second pass:** bare Bay Area and Puget Sound cities resolve to their state; "Remote US" / "Remote in Canada" give the country with the remote flag; "Multiple Locations" and a stray "Location:" label never become a city; comma-joined city lists ("New York, San Francisco, Seattle", "IRL, Dublin, Cork") split into one place each. Corpus grown to 706 strings; existing rows re-parsed (unparsed 421 → 124).
 - **Google and Meta handlers emit the card's location** (first place plus every listed one), so those jobs answer the Location filter; "USA Remote" and other country-first remote strings parse to the country with the remote flag.
