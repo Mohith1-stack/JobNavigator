@@ -8,7 +8,8 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 from sqlalchemy.exc import IntegrityError
-from backend.countries import DEFAULT_COUNTRY, compose_location, normalize_country, supported_countries
+from backend.countries import (DEFAULT_COUNTRY, compose_location, normalize_country,
+                               split_country_suffix, supported_countries)
 from backend.models.db import get_db, Search, Setting, ScrapeLog, Job, is_acknowledged
 
 logger = logging.getLogger("jobnavigator.routes_searches")
@@ -30,7 +31,7 @@ class SearchCreate(BaseModel):
     search_mode: str = "keyword"
     search_term: Optional[str] = None
     direct_url: Optional[str] = None
-    location: str = "United States"
+    location: str = ""
     country: str = DEFAULT_COUNTRY
     is_remote: Optional[bool] = None
     job_type: str = "fulltime"
@@ -88,10 +89,31 @@ def _validated_country(value) -> str:
     return name
 
 
+def _validated_location(location, country) -> str:
+    """The location text, or 400 when its own country segment names another country.
+
+    The scraper appends the label of `country` to `location`, so the pair must
+    agree. It used to fail loudly when it did not: Indeed answered a Canadian
+    city on the US site with zero rows. Composed, the same pair becomes a silent
+    wrong-country scrape — "Canada" with country "usa" would query "United
+    States" and store US rows. The write path refuses the pair instead of
+    choosing one side for the user.
+    """
+    named = split_country_suffix(location)[1]
+    if named and named != country:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Location '{location}' names {named}, but Country is {country} "
+                   f"— leave the country out of Location, or change Country",
+        )
+    return location
+
+
 @router.post("")
 def create_search(data: SearchCreate, db: Session = Depends(get_db)):
     payload = data.model_dump()
     payload["country"] = _validated_country(payload["country"])
+    payload["location"] = _validated_location(payload["location"], payload["country"])
     search = Search(**payload)
     db.add(search)
     db.commit()
@@ -113,6 +135,14 @@ def update_search(search_id: str, updates: dict, db: Session = Depends(get_db)):
     }
     if "country" in updates:
         updates["country"] = _validated_country(updates["country"])
+    # The pair is validated, not one field: a patch may carry either one, and the
+    # other keeps its stored value. This runs before the writes, so a rejected
+    # patch leaves the row alone.
+    if "location" in updates or "country" in updates:
+        _validated_location(
+            updates.get("location", search.location),
+            updates.get("country", search.country) or DEFAULT_COUNTRY,
+        )
     for key, value in updates.items():
         if key in allowed:
             setattr(search, key, value)

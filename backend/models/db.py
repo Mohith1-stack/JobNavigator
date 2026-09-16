@@ -68,7 +68,11 @@ class Search(Base):
     search_mode = Column(String, default="keyword")  # keyword | levels_fyi | linkedin_personal | jobright | freehire | extension | linkedin_extension
     search_term = Column(String, nullable=True)
     direct_url = Column(String, nullable=True)
-    location = Column(String, default="United States")
+    # A city or a region, never a country: `country` is the single country
+    # source and the scraper appends its label. The old default was
+    # "United States", which the write path now refuses next to any other
+    # country. An empty location composes to the country label alone.
+    location = Column(String, default="")
     # Picks the Indeed domain and the `indeed-co` API header. A US domain answers
     # a question about a Canadian city with HTTP 200 and an empty result list, so
     # the country is an explicit field instead of a literal. Values are jobspy
