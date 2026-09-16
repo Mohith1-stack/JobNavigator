@@ -1695,7 +1695,7 @@ export function ToastCard({ kind = 'progress', children, style, className }) {
 // The Feed posting's zoom control: a vertical + / − pill that idles faded so it
 // never competes with the page under it and comes up whole on hover
 // (theme.css `.v2-zoomfloat:hover`). The pill only — the CALLER pins it
-// (`position:absolute; right:14px; top:14px; z-index:6`) over the frame it
+// (`position:absolute; right:30px; top:14px; z-index:6`) over the frame it
 // zooms, and owns the level; this draws the two steps and reports the clicks.
 // Double-click anywhere on the pill resets. Every handler stops propagation:
 // the pill floats over a posting pane whose ancestors select/toggle on click.

@@ -1677,7 +1677,7 @@ export default function V2JobFeed() {
                         <iframe title="cached" srcDoc={cachedHtml || '<p style="padding:16px;font-family:sans-serif">Loading cached snapshot…</p>'} sandbox="allow-popups allow-forms" referrerPolicy="no-referrer" style={{ position: 'absolute', top: 0, left: 0, border: 'none', background: 'var(--iframe-bg)', ...zoomStyle }} />
                         {zoomFloater && (
                           <ZoomFloater zoom={postZoom} onIn={() => zoomTo(postZoom + 10)} onOut={() => zoomTo(postZoom - 10)}
-                            onReset={() => zoomTo(100)} style={{ position: 'absolute', right: 14, top: 14, zIndex: 6 }} />
+                            onReset={() => zoomTo(100)} style={{ position: 'absolute', right: 30, top: 14, zIndex: 6 }} />
                         )}
                       </div>
                     ) : frameSrc ? (
@@ -1697,7 +1697,7 @@ export default function V2JobFeed() {
                         </div>
                         {zoomFloater && (
                           <ZoomFloater zoom={postZoom} onIn={() => zoomTo(postZoom + 10)} onOut={() => zoomTo(postZoom - 10)}
-                            onReset={() => zoomTo(100)} style={{ position: 'absolute', right: 14, top: 14, zIndex: 6 }} />
+                            onReset={() => zoomTo(100)} style={{ position: 'absolute', right: 30, top: 14, zIndex: 6 }} />
                         )}
                         {frameLoadId === frameJobId && (
                           <div style={{ position: 'absolute', inset: 0, background: 'var(--bg)', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 10 }}>
