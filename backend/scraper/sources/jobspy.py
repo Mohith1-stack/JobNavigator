@@ -100,6 +100,7 @@ def _condense_error(msg: str) -> str:
 # Known blocks: the board refuses this scraper on every measured run, and no query
 # change helps. Each signature maps to a stable text. Every other failure keeps
 # its condensed text, so a failure nobody diagnosed stays visible as it is.
+# The frontend flags the same two boards in frontend/src/sourceBlocks.js.
 ZIP_RECRUITER_BLOCKED = "the server refuses the requests that this scraper sends: HTTP 403"
 GOOGLE_BLOCKED = "the server returns a JavaScript check page that this scraper cannot read"
 _KNOWN_BLOCKS = {

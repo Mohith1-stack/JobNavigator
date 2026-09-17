@@ -4,7 +4,8 @@ import api from '../api'
 import { useToasts, ToastStack } from '../Toast'
 import ConfirmDialog from '../ConfirmDialog'
 import { useSettled, useWarm, NBSP, DASH } from '../hooks'
-import { Button, Card, Check, CopyGlyph, Dot, FlaskGlyph, FooterRow, HeaderRow, Heading, Helper, IconButton, Input, Label, Link, Menu, MenuItem, ModalPanel, PageTitle, Pill, Rule, Segmented, Select, Spinner, TableHead } from '../ui'
+import { Button, Card, Check, CopyGlyph, Dot, FlaskGlyph, FooterRow, HeaderRow, Heading, Helper, IconButton, Input, Label, Link, Menu, MenuItem, ModalPanel, PageTitle, Pill, Rule, Segmented, Select, Spinner, TableHead, Tag } from '../ui'
+import { BLOCKED_BADGE, SOURCE_BLOCKS } from '../sourceBlocks'
 import '../theme.css'
 
 // ── helpers ──────────────────────────────────────────────────────────────────
@@ -231,9 +232,10 @@ function Cell({ label, value, onChange, mono, placeholder, span, sub, disabled, 
     </div>
   )
 }
-const Chip = ({ on, label, onClick }) => (
+const Chip = ({ on, label, badge, onClick }) => (
   <Pill size="sm" on={on} onClick={onClick}>
     <span>{on ? '✓' : '○'}</span>{label}
+    {badge && <Tag tone="warn">{badge}</Tag>}
   </Pill>
 )
 // The two call sites live inside the edit form, whose own wrapper already calls
@@ -312,7 +314,9 @@ function ConfigForm({ d, set }) {
       {m === 'keyword' && (
         <div style={{ display: 'flex', alignItems: 'center', gap: 7, flexWrap: 'wrap' }}>
           <Label style={{ marginRight: 3 }}>Sources</Label>
-          {SOURCES.map(([id, label]) => <Chip key={id} on={d.sources.includes(id)} label={label} onClick={() => toggleSrc(id)} />)}
+          {SOURCES.map(([id, label]) => <Chip key={id} on={d.sources.includes(id)} label={label} badge={SOURCE_BLOCKS[id] && BLOCKED_BADGE} onClick={() => toggleSrc(id)} />)}
+          {/* Visible text, not a hover title, so keyboard and screen-reader users get the reason too. */}
+          <Helper style={{ flexBasis: '100%' }}>{BLOCKED_BADGE}: {Object.values(SOURCE_BLOCKS).join(' ')}</Helper>
         </div>
       )}
       {m === 'linkedin_personal' && (

@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react'
 import api from '../api'
 import InfoTip from './InfoTip'
+import { BLOCKED_BADGE, SOURCE_BLOCKS } from '../sourceBlocks'
 import { Plus, Play, Trash2, Edit2, Check, X, FlaskConical, ExternalLink, Loader2, AlertTriangle } from 'lucide-react'
 
 const SOURCES = [
@@ -389,7 +390,7 @@ export default function SearchManager() {
       {ed.search_mode === 'keyword' && (
         <div className="mt-3">
           <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Sources</label>
-          <div className="flex gap-3">
+          <div className="flex flex-wrap gap-3">
             {SOURCES.map(s => (
               <label key={s.value} className="flex items-center gap-1 text-xs">
                 <input type="checkbox" checked={(ed.sources || []).includes(s.value)}
@@ -400,9 +401,13 @@ export default function SearchManager() {
                     setEd({ sources: newSources })
                   }} />
                 {s.label}
+                {SOURCE_BLOCKS[s.value] && (
+                  <span className="bg-amber-50 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300 px-1 rounded">{BLOCKED_BADGE}</span>
+                )}
               </label>
             ))}
           </div>
+          <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">{BLOCKED_BADGE}: {Object.values(SOURCE_BLOCKS).join(' ')}</p>
         </div>
       )}
 
