@@ -164,6 +164,31 @@ def test_google_that_returned_rows_records_no_error(test_db, monkeypatch):
     assert google["returned"] == 1
 
 
+@pytest.mark.asyncio
+@pytest.mark.parametrize("rows", [
+    [],  # every board failed: the early return
+    [_row("indeed", "Program Manager", "Acme", "https://indeed.test/a")],
+])
+async def test_the_test_run_reports_each_failed_board(test_db, rows):
+    """Before this, a failed board simply disappeared from the Test run result."""
+    from backend.api.routes_searches import test_search
+    from backend.scraper.sources.jobspy import GOOGLE_BLOCKED, ZIP_RECRUITER_BLOCKED
+
+    _fake_jobspy(rows, log_errors=[
+        ("JobSpy:ZipRecruiter", ZIP_FORBIDDEN_AA, logging.ERROR),
+        ("JobSpy:Google", GOOGLE_CURSOR_WARNING, logging.WARNING),
+    ])
+    search = _search(test_db, ["indeed", "zip_recruiter", "google"])
+
+    out = await test_search(str(search.id), db=test_db)
+
+    assert out["source_errors"] == {
+        "zip_recruiter": ZIP_RECRUITER_BLOCKED,
+        "google": GOOGLE_BLOCKED,
+    }
+    assert out["source_breakdown"] == ({"indeed": 1} if rows else {})
+
+
 # jobspy/indeed/__init__.py reports an HTTP failure through log.info, with this
 # exact wording. A WARNING threshold never saw it, so no Indeed failure could
 # reach source_breakdown at all.

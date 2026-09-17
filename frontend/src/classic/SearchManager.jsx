@@ -566,14 +566,19 @@ export default function SearchManager() {
                 </div>
 
                 {/* Source & Company breakdowns */}
-                {(Object.keys(testResult.source_breakdown || {}).length > 0 || Object.keys(testResult.company_breakdown || {}).length > 0) && (
+                {(Object.keys(testResult.source_breakdown || {}).length > 0 || Object.keys(testResult.source_errors || {}).length > 0 || Object.keys(testResult.company_breakdown || {}).length > 0) && (
                   <div className="px-5 py-2 border-b border-gray-200 dark:border-gray-700 bg-blue-50/50 dark:bg-gray-700/50 flex gap-8 text-xs">
-                    {Object.keys(testResult.source_breakdown || {}).length > 0 && (
+                    {(Object.keys(testResult.source_breakdown || {}).length > 0 || Object.keys(testResult.source_errors || {}).length > 0) && (
                       <div>
                         <span className="font-medium text-gray-600 dark:text-gray-400">By source: </span>
-                        {Object.entries(testResult.source_breakdown).map(([source, count]) => (
+                        {Object.entries(testResult.source_breakdown || {}).map(([source, count]) => (
                           <span key={source} className={`inline-block px-1.5 py-0.5 rounded mr-1 ${SOURCE_COLORS[source] || 'bg-gray-100 text-gray-600'}`}>
                             {source} ({count})
+                          </span>
+                        ))}
+                        {Object.entries(testResult.source_errors || {}).map(([source, error]) => (
+                          <span key={`${source}-error`} className="inline-block px-1.5 py-0.5 rounded mr-1 bg-red-50 text-red-700 dark:bg-red-900/40 dark:text-red-300">
+                            {source} failed: {error}
                           </span>
                         ))}
                       </div>

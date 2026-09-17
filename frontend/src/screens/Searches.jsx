@@ -811,6 +811,8 @@ function TestModal({ test, tab, setTab, onClose }) {
   // (routes_searches.py:391/:621, jobright.py:730, freehire.py:330,
   // linkedin_personal.py:1123); `by_source` never existed.
   const bySource = d.source_breakdown || d.by_source || {}
+  // {board: text} for each board that failed; only the keyword preview sends it.
+  const srcErrors = Object.entries(d.source_errors || {})
   // per-board chip colours from the design: linkedin blue, indeed plum, zip amber, google red
   const srcChip = (k) => {
     if (k === 'linkedin') return { className: 'sm-keyword' }
@@ -866,6 +868,14 @@ function TestModal({ test, tab, setTab, onClose }) {
                 })}
               </span>
             </HeaderRow>
+
+            {srcErrors.length > 0 && (
+              <HeaderRow pad="7px 22px" soft align="center" style={{ flexWrap: 'wrap', gap: 12, fontSize: 11, color: 'var(--bad)' }}>
+                {srcErrors.map(([k, e]) => (
+                  <span key={k}><span style={{ fontFamily: 'var(--mono)' }}>{k}</span> failed: {e}</span>
+                ))}
+              </HeaderRow>
+            )}
 
             <HeaderRow pad="9px 22px" soft style={{ gap: 6 }}>
               {[['all', `All (${jobs.length})`], ['kept', `Kept (${kept.length})`], ['filtered', `Filtered (${filtered.length})`]].map(([id, label]) => {

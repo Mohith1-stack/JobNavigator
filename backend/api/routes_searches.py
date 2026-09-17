@@ -309,9 +309,14 @@ async def test_search(search_id: str, db: Session = Depends(get_db)):
     if proxy_url:
         kwargs["proxies"] = [proxy_url]
 
+    from backend.scraper.sources.jobspy import _board_errors, _capture_source_errors
+
     start = time.time()
     try:
-        jobs_df = await asyncio.to_thread(scrape_jobs, **kwargs)
+        # The same capture as the scheduled run: jobspy reports a failed board
+        # only in its log, so without it a failed board just disappears here.
+        with _capture_source_errors(sources) as capture:
+            jobs_df = await asyncio.to_thread(scrape_jobs, **kwargs)
     except Exception:
         logger.exception("JobSpy scrape_jobs failed during test for search %s", search.name)
         return {
@@ -330,6 +335,8 @@ async def test_search(search_id: str, db: Session = Depends(get_db)):
         }
 
     duration = round(time.time() - start, 1)
+    # {board: text} for each board that failed; source_breakdown keeps its shape.
+    source_errors = _board_errors(capture.errors, jobs_df)
 
     if jobs_df is None or jobs_df.empty:
         return {
@@ -344,6 +351,7 @@ async def test_search(search_id: str, db: Session = Depends(get_db)):
             "body_unchecked_count": 0,
             "body_phrase_count": 0,
             "source_breakdown": {},
+            "source_errors": source_errors,
             "company_breakdown": {},
             "include_keywords": search.title_include_keywords or [],
             "exclude_keywords": search.title_exclude_keywords or [],
@@ -532,6 +540,7 @@ async def test_search(search_id: str, db: Session = Depends(get_db)):
         "body_unchecked_count": body_unchecked_count,
         "body_phrase_count": len(body_phrases),
         "source_breakdown": source_breakdown,
+        "source_errors": source_errors,
         "company_breakdown": company_breakdown,
         "include_keywords": include_kw,
         "exclude_keywords": exclude_kw,
