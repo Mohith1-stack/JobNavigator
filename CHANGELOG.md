@@ -14,7 +14,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 - **Page text is fenced in every prompt:** the job posting (scoring, tailoring, cover letters) and the application question (autofill) go to the model between `<<<JOB POSTING>>>` markers with a one-line notice that it is data, so a posting that carries instructions is read as a posting. Output for ordinary postings is unchanged.
-- **Frontend port 3000** binds to 127.0.0.1; the dashboard is reached through Caddy on port 80 only.
+- **Frontend port 3000 is no longer published**; the dashboard is reached through Caddy on port 80 only (a host port there served nothing and could clash with ranges Windows reserves for Hyper-V).
 
 ### Fixed
 - **PDF résumé import** (by @brycecollison, #15): the reply is parsed from the first balanced JSON object (bare, fenced or wrapped in prose) and the token budget is 8000, so a verbose local model no longer truncates mid-object. "Cambridge, MA USA" style strings split into state and country.
