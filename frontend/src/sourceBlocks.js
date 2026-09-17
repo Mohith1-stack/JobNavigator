@@ -7,5 +7,5 @@ export const BLOCKED_BADGE = 'Often blocked'
 
 export const SOURCE_BLOCKS = {
   zip_recruiter: 'The ZipRecruiter server refuses the requests that this scraper sends.',
-  google: 'Google returns a JavaScript check page that this scraper cannot read.',
+  google: 'Google usually returns a JavaScript check page instead of job data, and this scraper cannot read that page.',
 }

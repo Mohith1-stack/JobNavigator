@@ -336,7 +336,7 @@ async def test_search(search_id: str, db: Session = Depends(get_db)):
 
     duration = round(time.time() - start, 1)
     # {board: text} for each board that failed; source_breakdown keeps its shape.
-    source_errors = _board_errors(capture.errors, jobs_df)
+    source_errors = _board_errors(capture.errors, jobs_df, sources)
 
     if jobs_df is None or jobs_df.empty:
         return {

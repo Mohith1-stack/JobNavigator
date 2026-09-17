@@ -189,6 +189,43 @@ async def test_the_test_run_reports_each_failed_board(test_db, rows):
     assert out["source_breakdown"] == ({"indeed": 1} if rows else {})
 
 
+# The capture handler attaches to every JobSpy logger in the process. The
+# scheduler runs in the same process, so another run's board failure can reach
+# this run's capture. Only the boards this search uses may be reported.
+
+@pytest.mark.asyncio
+async def test_the_test_run_ignores_a_failure_of_a_board_it_does_not_use(test_db):
+    from backend.api.routes_searches import test_search
+    from backend.scraper.sources.jobspy import ZIP_RECRUITER_BLOCKED, _capture_source_errors
+
+    # The ZipRecruiter record stands for the overlapping scheduled run.
+    _fake_jobspy([_row("indeed", "Program Manager", "Acme", "https://indeed.test/a")],
+                 log_errors=[("JobSpy:ZipRecruiter", ZIP_FORBIDDEN_AA, logging.ERROR)])
+    search = _search(test_db, ["linkedin", "indeed"])
+
+    with _capture_source_errors(["zip_recruiter"]) as scheduled:
+        out = await test_search(str(search.id), db=test_db)
+
+    assert scheduled.errors == {"zip_recruiter": ZIP_RECRUITER_BLOCKED}
+    assert out["source_errors"] == {}
+    assert out["source_breakdown"] == {"indeed": 1}
+
+
+def test_a_run_ignores_a_failure_of_a_board_it_does_not_use(test_db, monkeypatch):
+    """The scheduled path merges captured errors with setdefault, so it would add the foreign board too."""
+    from backend.scraper.sources.jobspy import ZIP_RECRUITER_BLOCKED, _capture_source_errors, _run_sync
+
+    _fake_jobspy([_row("indeed", "Program Manager", "Acme", "https://indeed.test/a")],
+                 log_errors=[("JobSpy:ZipRecruiter", ZIP_FORBIDDEN_AA, logging.ERROR)])
+
+    with _capture_source_errors(["zip_recruiter"]) as other:
+        result = _run_sync(_search(test_db, ["indeed"]))
+
+    assert other.errors == {"zip_recruiter": ZIP_RECRUITER_BLOCKED}
+    assert set(result["source_breakdown"]) == {"indeed"}
+    assert "error" not in result["source_breakdown"]["indeed"]
+
+
 # jobspy/indeed/__init__.py reports an HTTP failure through log.info, with this
 # exact wording. A WARNING threshold never saw it, so no Indeed failure could
 # reach source_breakdown at all.
