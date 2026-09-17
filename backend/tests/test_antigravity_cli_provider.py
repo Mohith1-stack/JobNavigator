@@ -1,5 +1,6 @@
 """Contract tests for the Google-subscription Antigravity CLI provider."""
 import json
+import os
 from pathlib import Path
 
 import pytest
@@ -41,6 +42,8 @@ def _install(monkeypatch, process):
 
     monkeypatch.setattr(llm_client.asyncio, "create_subprocess_exec", fake_exec)
     monkeypatch.setattr(llm_client, "_agy_discard", lambda cid: None)
+    monkeypatch.setattr(llm_client, "_agy_install_settings", lambda: ["command(*)"])
+    monkeypatch.setattr(llm_client, "_agy_assert_denied", lambda path, rules: None)
     return calls
 
 
@@ -144,3 +147,59 @@ async def test_antigravity_discards_the_transcript_that_holds_the_prompt(monkeyp
     assert not (state / "annotations/c-1.pbtxt").exists()
     assert not (state / "brain/c-1").exists()
     assert (state / "conversations/keep-me.db").exists()
+
+
+@pytest.mark.asyncio
+async def test_antigravity_discards_the_transcript_when_the_call_times_out(monkeypatch):
+    """The timeout path is the one that matters: a hung call still wrote the prompt to disk."""
+    init = json.dumps({"event": "init", "conversation_id": "c-hung"}).encode() + b"\n"
+    discarded = []
+
+    async def fake_run_cli(cmd, stdin, env=None, timeout=None, cwd=None):
+        raise llm_client.CLITimeoutError("agy timed out after 300s", init, b"")
+
+    monkeypatch.setattr(llm_client, "_run_cli", fake_run_cli)
+    monkeypatch.setattr(llm_client, "_agy_install_settings", lambda: [])
+    monkeypatch.setattr(llm_client, "_agy_discard", discarded.append)
+
+    with pytest.raises(llm_client.CLITimeoutError):
+        await llm_client._call_antigravity_cli("prompt", "system", "", 10)
+    assert discarded == ["c-hung"]
+
+
+@pytest.mark.asyncio
+async def test_antigravity_refuses_when_the_log_does_not_confirm_the_deny_rules(monkeypatch, tmp_path):
+    """agy can fall back to its defaults; a call that cannot prove the deny list must not run."""
+    log = tmp_path / "cli.log"
+    log.write_text("I0916 cli_setting_manager.go:92] CLI settings initialized: "
+                   "permissions=&{Allow:[] Deny:[] Ask:[]}\n")
+    with pytest.raises(NonRetryableLLMError, match="without the deny rules"):
+        llm_client._agy_assert_denied(str(log), ["command(*)", "read_file(/)"])
+
+
+@pytest.mark.asyncio
+async def test_antigravity_refuses_when_the_log_says_nothing_about_permissions(monkeypatch, tmp_path):
+    with pytest.raises(NonRetryableLLMError, match="never reported its permissions"):
+        llm_client._agy_assert_denied(str(tmp_path / "absent.log"), ["command(*)"])
+
+
+def test_antigravity_settings_are_installed_where_agy_can_rewrite_them(monkeypatch, tmp_path):
+    """A read-only copy makes agy's own start-up write fail, which is how it reaches its defaults."""
+    source = tmp_path / "shipped.json"
+    source.write_text(json.dumps({"permissions": {"deny": ["command(*)", "read_file(/)"]}}))
+    state = tmp_path / "state"
+    monkeypatch.setattr(llm_client, "_AGY_SETTINGS_SOURCE", str(source))
+    monkeypatch.setattr(llm_client, "_AGY_STATE", str(state))
+
+    rules = llm_client._agy_install_settings()
+
+    assert rules == ["command(*)", "read_file(/)"]
+    written = state / "settings.json"
+    assert json.loads(written.read_text()) == json.loads(source.read_text())
+    assert os.access(written, os.W_OK)
+
+
+def test_antigravity_refuses_when_the_shipped_deny_list_is_missing(monkeypatch, tmp_path):
+    monkeypatch.setattr(llm_client, "_AGY_SETTINGS_SOURCE", str(tmp_path / "gone.json"))
+    with pytest.raises(NonRetryableLLMError, match="deny list is missing"):
+        llm_client._agy_install_settings()

@@ -334,6 +334,15 @@ async def _call_claude_code(prompt: str, system: str, model: str, max_tokens: in
     }
 
 
+class CLITimeoutError(RuntimeError):
+    """A CLI that outran its wall clock, carrying whatever it printed before the kill."""
+
+    def __init__(self, message: str, stdout: bytes = b"", stderr: bytes = b""):
+        super().__init__(message)
+        self.stdout = stdout
+        self.stderr = stderr
+
+
 class NonRetryableLLMError(RuntimeError):
     """A failure a retry cannot fix (not logged in, usage limit); call_llm goes straight to the fallback."""
 
@@ -349,6 +358,9 @@ _agy_gate = asyncio.Semaphore(2)
 _AGY_LOGIN_HINT = "run `docker compose exec -it backend agy` and sign in"
 _AGY_AUTH_RE = re.compile(r"authentication (required|failed)|not logged in|sign in", re.I)
 _AGY_STATE = "~/.gemini/antigravity-cli"
+# The deny list the image ships. It lives outside the state directory because agy rewrites
+# settings.json on every start, and a read-only copy there only makes that write fail.
+_AGY_SETTINGS_SOURCE = "/opt/antigravity-settings.json"
 
 
 async def _run_cli(cmd: list[str], stdin: bytes, env: dict | None = None, timeout: float = CLI_TIMEOUT,
@@ -358,12 +370,21 @@ async def _run_cli(cmd: list[str], stdin: bytes, env: dict | None = None, timeou
         *cmd, stdin=asyncio.subprocess.PIPE, stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE, env=env, cwd=cwd,
     )
+    reader = asyncio.ensure_future(process.communicate(input=stdin))
     try:
-        stdout, stderr = await asyncio.wait_for(process.communicate(input=stdin), timeout)
+        # shield, so a timeout does not cancel the read: after the kill the same task
+        # hands back what the process managed to print, which is how a caller can still
+        # clean up after a call that hung.
+        stdout, stderr = await asyncio.wait_for(asyncio.shield(reader), timeout)
     except asyncio.TimeoutError:
         process.kill()
         await process.wait()
-        raise RuntimeError(f"{cmd[0]} timed out after {int(timeout)}s")
+        partial = (b"", b"")
+        try:
+            partial = await asyncio.wait_for(reader, 5) or partial
+        except (asyncio.TimeoutError, OSError, ValueError, TypeError):
+            pass
+        raise CLITimeoutError(f"{cmd[0]} timed out after {int(timeout)}s", *partial)
     return process.returncode, stdout, stderr
 
 
@@ -437,6 +458,75 @@ async def _call_codex_cli(prompt: str, system: str, model: str, max_tokens: int)
     return {"text": text.strip(), "usage": usage}
 
 
+def _agy_events(stdout: bytes):
+    """Every NDJSON event agy printed, skipping any line that is not one."""
+    import json as _json
+    for line in stdout.decode(errors="replace").splitlines():
+        try:
+            yield _json.loads(line)
+        except _json.JSONDecodeError:
+            continue
+
+
+def _agy_conversation_id(stdout: bytes) -> str:
+    """The id agy gave this call. The init event carries it before any answer, which is all
+    a timed-out call leaves behind."""
+    for event in _agy_events(stdout):
+        cid = event.get("conversation_id") or (event.get("result") or {}).get("conversation_id")
+        if cid:
+            return str(cid)
+    return ""
+
+
+def _agy_install_settings() -> list[str]:
+    """Put the shipped deny list where agy reads it, and answer with the rules it must honour.
+    agy rewrites settings.json as it starts, so the file has to be writable: pinning a
+    read-only copy there makes the write fail and drops the CLI onto its defaults."""
+    import json as _json
+    import shutil
+    import os
+    target = os.path.join(os.path.expanduser(_AGY_STATE), "settings.json")
+    try:
+        with open(_AGY_SETTINGS_SOURCE, encoding="utf-8") as fh:
+            source = fh.read()
+    except OSError as e:
+        raise NonRetryableLLMError(
+            f"Antigravity deny list is missing at {_AGY_SETTINGS_SOURCE} ({e}); "
+            "the agent would run unconstrained, so the call is refused")
+    os.makedirs(os.path.dirname(target), exist_ok=True)
+    try:
+        current = open(target, encoding="utf-8").read()
+    except OSError:
+        current = ""
+    if current != source:
+        tmp = f"{target}.jobnavigator.tmp"
+        with open(tmp, "w", encoding="utf-8") as fh:
+            fh.write(source)
+        shutil.move(tmp, target)
+    return list(_json.loads(source).get("permissions", {}).get("deny", []))
+
+
+def _agy_assert_denied(log_path: str, rules: list[str]) -> None:
+    """Fail the call unless agy's own log says it loaded every deny rule.
+    Without this the CLI can silently fall back to defaults and hand the agent
+    `run_command` and `write_file` back, and nothing in the answer would show it."""
+    try:
+        with open(log_path, encoding="utf-8", errors="replace") as fh:
+            loaded = [ln for ln in fh if "CLI settings initialized" in ln]
+    except OSError:
+        loaded = []
+    if not loaded:
+        raise NonRetryableLLMError(
+            "Antigravity CLI never reported its permissions, so the deny list cannot be "
+            "confirmed; the call is refused rather than run unconstrained")
+    line = loaded[-1]
+    missing = [r for r in rules if r not in line]
+    if missing:
+        raise NonRetryableLLMError(
+            f"Antigravity CLI started without the deny rules {missing}; "
+            "it would be free to read files and run commands, so the call is refused")
+
+
 def _agy_discard(conversation_id: str) -> None:
     """Delete the per-call transcript agy writes. It holds the whole prompt — the resume text —
     and nothing reads it back, so it is disk growth and a copy of user data we do not want."""
@@ -457,8 +547,9 @@ def _agy_discard(conversation_id: str) -> None:
 async def _call_antigravity_cli(prompt: str, system: str, model: str, max_tokens: int) -> dict:
     """Call Antigravity CLI on its Google subscription. The prompt rides on stdin as one NDJSON
     line because `-p` reads argv and argv caps near 128 KB. `max_tokens` is ignored: the CLI
-    exposes no output cap. Tool use is blocked by ~/.gemini/antigravity-cli/settings.json, which
-    the image ships — `--sandbox` restricts the terminal only, never the file tools."""
+    exposes no output cap. Tool use is blocked by a deny list installed before each call and
+    confirmed from agy's own log afterwards — `--sandbox` restricts the terminal only, never
+    the file tools."""
     import json as _json
     import os
     import tempfile
@@ -470,28 +561,37 @@ async def _call_antigravity_cli(prompt: str, system: str, model: str, max_tokens
     message = _json.dumps({"event": "user",
                            "message": {"role": "user", "content": f"{system}\n\n{prompt}"}})
 
-    async with _agy_gate:
-        with tempfile.TemporaryDirectory(prefix="jobnavigator-agy-") as workdir:
-            # `-p` always swallows the next token, so it goes last with an attached empty value.
-            cmd = ["agy", "--input-format", "stream-json", "--output-format", "stream-json",
-                   "--print-timeout", f"{int(CLI_TIMEOUT)}s"]
-            if model:
-                cmd.extend(["--model", model])
-            cmd.append("-p=")
-            rc, stdout, stderr = await _run_cli(cmd, (message + "\n").encode(), env=env, cwd=workdir)
+    denied = _agy_install_settings()
+    stdout = b""
+    try:
+        async with _agy_gate:
+            with tempfile.TemporaryDirectory(prefix="jobnavigator-agy-") as workdir:
+                # The log goes in the temp directory: it holds the permissions line this
+                # call is checked against, and ~16 KB per call has no business surviving.
+                log_path = os.path.join(workdir, "cli.log")
+                # `-p` always swallows the next token, so it goes last with an attached empty value.
+                cmd = ["agy", "--input-format", "stream-json", "--output-format", "stream-json",
+                       "--print-timeout", f"{int(CLI_TIMEOUT)}s", "--log-file", log_path]
+                if model:
+                    cmd.extend(["--model", model])
+                cmd.append("-p=")
+                rc, stdout, stderr = await _run_cli(cmd, (message + "\n").encode(),
+                                                    env=env, cwd=workdir)
+                _agy_assert_denied(log_path, denied)
+    except CLITimeoutError as e:
+        stdout = e.stdout
+        raise
+    finally:
+        # A timeout kills agy before the result event, so the id comes from the init event.
+        # The transcript has to go exactly in that case too — it holds the whole prompt.
+        conversation_id = _agy_conversation_id(stdout)
+        if conversation_id:
+            _agy_discard(conversation_id)
 
     result = {}
-    for line in stdout.decode(errors="replace").splitlines():
-        try:
-            event = _json.loads(line)
-        except _json.JSONDecodeError:
-            continue
+    for event in _agy_events(stdout):
         if event.get("event") == "result":
             result = event.get("result") or {}
-
-    conversation_id = str(result.get("conversation_id") or "")
-    if conversation_id:
-        _agy_discard(conversation_id)
 
     if result.get("status") != "SUCCESS" or rc != 0:
         err_lines = stderr.decode(errors="replace").strip().splitlines()

@@ -50,9 +50,6 @@ services:
       - codex_auth:/root/.codex
       # agy keeps its OAuth token in a file here; no keyring in this image.
       - antigravity_auth:/root/.gemini
-      # The volume would hide the image's copy, and a stale deny list is a silent
-      # hole. Bind the repo file over it, read-only so the agent cannot edit it.
-      - ./backend/antigravity-settings.json:/root/.gemini/antigravity-cli/settings.json:ro
 
   frontend:
     image: ghcr.io/vesaias/jobnavigator-frontend:${JN_IMAGE_TAG:-latest}
