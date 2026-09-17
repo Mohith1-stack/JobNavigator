@@ -205,6 +205,19 @@ def test_the_migration_keeps_the_country_field_when_the_text_disagrees(test_db, 
     assert any("keeping country" in r.getMessage() for r in caplog.records), \
         "a contradicting row must be logged"
 
+    # Known residual, pinned on purpose: the first pass removed the only
+    # evidence. From the second startup on, the row reads as a deliberate
+    # "Toronto" + usa search and nothing logs it again. It composes to
+    # "Toronto, United States" with no signal.
+    caplog.clear()
+    with caplog.at_level(logging.WARNING):
+        _strip_country_from_search_location(test_db)
+
+    test_db.refresh(search)
+    assert search.location == "Toronto"
+    assert not [r for r in caplog.records if "keeping country" in r.getMessage()], \
+        "the contradiction is silent after the first startup"
+
 
 def test_the_migration_logs_a_country_only_location_that_disagrees(test_db, caplog):
     """The text stays, so only the log tells an operator this row scrapes the
@@ -479,3 +492,81 @@ def test_the_backfill_stays_quiet_when_it_reads_a_country(test_db, caplog):
         _backfill_search_country(test_db)
 
     assert not [r for r in caplog.records if "guessed" in r.getMessage()]
+
+
+# ── jobright reads the location raw ───────────────────────────────────────────
+
+class _FakeResponse:
+    text = '<script id="__NEXT_DATA__" type="application/json">' \
+           '{"props": {"pageProps": {"jobList": [], "totalJobs": 0}}}</script>'
+
+    def raise_for_status(self):
+        return None
+
+
+def _record_jobright_params(monkeypatch, sent):
+    """Stub the session and the HTTP client, and keep the params of every GET."""
+    from backend.scraper.sources import jobright
+
+    async def _session(force_relogin=False):
+        return "session"
+
+    class _Client:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *exc):
+            return False
+
+        async def get(self, url, params=None, **kwargs):
+            sent.append(dict(params or {}))
+            return _FakeResponse()
+
+    monkeypatch.setattr(jobright, "_ensure_session", _session)
+    monkeypatch.setattr(jobright.httpx, "AsyncClient", _Client)
+
+
+def test_a_new_jobright_search_sends_no_location(api_client, test_db, monkeypatch):
+    """A search created now stores "", and jobright receives no location parameter.
+
+    The search goes through the real write path, so this test fails if the
+    column default or the SearchCreate default returns to a country name.
+    """
+    import asyncio
+    from backend.scraper.sources import jobright
+
+    _first_run_auth(test_db)
+    resp = api_client.post("/api/searches", json={
+        "name": "New jobright", "search_mode": "jobright", "search_term": "program manager",
+    })
+    assert resp.status_code == 200, f"Unexpected {resp.status_code}: {resp.text}"
+    search = test_db.query(Search).filter(Search.name == "New jobright").one()
+    assert search.location == ""
+
+    sent = []
+    _record_jobright_params(monkeypatch, sent)
+    asyncio.run(jobright.preview(search, test_db))
+
+    assert sent, "the SSR search was never requested"
+    assert "location" not in sent[0], f"a new jobright search sent {sent[0]}"
+
+
+def test_an_old_jobright_search_still_sends_its_stored_location(test_db, monkeypatch):
+    """The other population, pinned so that the difference stays a decision.
+
+    The strip skips jobright rows, so an old row keeps the old default and sends
+    it. Measured, jobright answers it the same way as no location.
+    """
+    import asyncio
+    from backend.scraper.sources import jobright
+
+    search = _search(test_db, search_mode="jobright", location="United States")
+
+    sent = []
+    _record_jobright_params(monkeypatch, sent)
+    asyncio.run(jobright.preview(search, test_db))
+
+    assert sent and sent[0].get("location") == "United States"
