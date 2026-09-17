@@ -307,6 +307,30 @@ async def test_cache_job_page_falls_back_on_thin_html_too(test_db, monkeypatch):
     assert "Responsibilities" in job.cached_page_text
 
 
+_CHALLENGE_HTML = ("<html><head><title>Just a moment...</title></head><body>"
+                   + "Verifying you are human. This may take a few seconds. " * 5 + "</body></html>")
+
+
+@pytest.mark.asyncio
+async def test_cache_job_page_never_stores_a_bot_wall(test_db, monkeypatch):
+    """The cached text is tailoring's last-resort JD, so a challenge page must not land there."""
+    import backend.api.routes_applications as ra
+    _patch_url_safety(monkeypatch, gate=True, safe_get=_Resp(text=_CHALLENGE_HTML))
+    tried = []
+
+    async def _pw(url):
+        tried.append(url)
+        return _CHALLENGE_HTML
+
+    monkeypatch.setattr(ra, "_fetch_with_playwright", _pw)
+    job = make_job(test_db)
+    await real_cache_job_page(str(job.id), "https://e.com/j")
+    test_db.refresh(job)
+    assert tried, "a walled httpx answer still earns the browser attempt"
+    assert job.cached_page_text is None and job.cached_page_html is None
+    assert job.cache_error == "playwright: blocked by bot protection"
+
+
 @pytest.mark.asyncio
 async def test_cache_job_page_records_a_playwright_failure(test_db, monkeypatch):
     import backend.api.routes_applications as ra

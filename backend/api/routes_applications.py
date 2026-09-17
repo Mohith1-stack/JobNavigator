@@ -6,8 +6,11 @@ from pydantic import BaseModel
 from sqlalchemy.orm import Session
 from sqlalchemy import desc
 from backend.models.db import get_db, Application, Job, Company, Setting, utcnow, SessionLocal
+from backend.scraper._shared.bot_wall import is_bot_wall
 
 logger = logging.getLogger("jobnavigator.applications")
+
+_BOT_WALL_ERROR = "blocked by bot protection"
 
 router = APIRouter(prefix="/applications", tags=["applications"])
 
@@ -198,6 +201,12 @@ async def _cache_job_page(job_id: str, url: str):
                 logger.info(f"httpx failed for job {job_id}, will try Playwright: {e}")
                 last_error = f"httpx: {e}"
 
+            # A challenge page has enough text to pass as content, and the cached
+            # text is what tailoring falls back to as the JD.
+            if is_bot_wall(html):
+                last_error = f"httpx: {_BOT_WALL_ERROR}"
+                html = None
+
             clean_html, text = _extract_clean_content(html) if html else ("", "")
             # Up to 1 MB of raw markup plus the soup built from it; drop the
             # reference before the (slow) Playwright branch so it is not pinned
@@ -209,7 +218,9 @@ async def _cache_job_page(job_id: str, url: str):
                 logger.info(f"Thin content ({len(text)} chars) for job {job_id}, trying Playwright")
                 try:
                     pw_html = await _fetch_with_playwright(url)
-                    if pw_html:
+                    if is_bot_wall(pw_html):
+                        last_error = f"playwright: {_BOT_WALL_ERROR}"
+                    elif pw_html:
                         clean_html, text = _extract_clean_content(pw_html)
                         logger.info(f"Playwright got {len(text)} text chars for job {job_id}")
                     pw_html = None
