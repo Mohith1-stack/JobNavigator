@@ -105,7 +105,7 @@ def source_errors(breakdown) -> list:
 
 
 def describe_source_errors(breakdown) -> str:
-    """"zip_recruiter: 403 · google: initial cursor not found" (empty when clean)."""
+    """"zip_recruiter: 403 · indeed: 503" (empty when clean)."""
     return " · ".join(f"{key}: {err}" for key, err in source_errors(breakdown))
 
 

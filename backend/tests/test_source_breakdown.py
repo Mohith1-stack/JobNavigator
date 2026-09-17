@@ -23,15 +23,16 @@ def _fake_jobspy(rows, log_errors=(), level=logging.ERROR):
 
     `level` is the level the board reports at. The Indeed scraper reports an HTTP
     failure at INFO, so a test that passes logging.ERROR proves nothing about it.
+    An entry can carry its own level as a third item.
     """
     import pandas as pd
 
     # loggers must exist before _capture_source_errors() enumerates them
-    boards = [_board_logger(name) for name, _ in log_errors]
+    boards = [_board_logger(entry[0]) for entry in log_errors]
 
     def scrape_jobs(**kwargs):
-        for logger, (_, msg) in zip(boards, log_errors):
-            logger.log(level, msg)
+        for logger, entry in zip(boards, log_errors):
+            logger.log(entry[2] if len(entry) > 2 else level, entry[1])
         return pd.DataFrame(rows)
 
     mod = types.ModuleType("jobspy")
@@ -87,13 +88,13 @@ def test_breakdown_counts_each_board(test_db, monkeypatch):
 
 def test_breakdown_records_a_refused_board(test_db, monkeypatch):
     """The 403 ZipRecruiter logs is captured and condensed to its status code."""
-    from backend.scraper.sources.jobspy import _run_sync
+    from backend.scraper.sources.jobspy import GOOGLE_BLOCKED, _run_sync
 
     _fake_jobspy(
         [_row("indeed", "Program Manager", "Acme", "https://indeed.test/a")],
         log_errors=[
             ("JobSpy:ZipRecruiter", "ZipRecruiter response status code 403"),
-            ("JobSpy:Google", "initial cursor not found"),
+            ("JobSpy:Google", GOOGLE_CURSOR_WARNING, logging.WARNING),
         ],
     )
     search = _search(test_db, ["indeed", "zip_recruiter", "google"])
@@ -103,9 +104,64 @@ def test_breakdown_records_a_refused_board(test_db, monkeypatch):
     bd = result["source_breakdown"]
     assert bd["indeed"]["seen"] == 1
     assert bd["zip_recruiter"]["error"] == "403"
-    assert bd["google"]["error"] == "initial cursor not found"
+    assert bd["google"]["error"] == GOOGLE_BLOCKED
     # the overall run still succeeded — the failure lives per source
     assert result["error"] is None
+
+
+# ── known blocks ────────────────────────────────────────────────────────────
+# The literal texts python-jobspy 1.1.82 logs. jobspy/ziprecruiter/__init__.py
+# logs a refused request at ERROR; jobspy/google/__init__.py logs the cursor
+# warning at WARNING.
+ZIP_FORBIDDEN_AA = (
+    'ZipRecruiter response status code 403 with response: {"error_code":"forbidden aa",'
+    '"error_message":"forbidden aa","request_id":"CFRAY:a3c92a7f9be26e1b-IAD","status_code":403}'
+)
+ZIP_FORBIDDEN_CF_WAF = (
+    'ZipRecruiter response status code 403 with response: '
+    '{"status_code":403,"error_code":"forbidden cf-waf","error_message":"Forbidden"}'
+)
+# Not measured here. The error code comes from upstream issue #190, the body shape is assumed.
+ZIP_GEOBLOCKED_GDPR = (
+    'ZipRecruiter response status code 403 with response: '
+    '{"error_code":"geoblocked-gdpr","error_message":"geoblocked-gdpr","status_code":403}'
+)
+ZIP_UNKNOWN_403 = "ZipRecruiter response status code 403 with response: <html>Access denied</html>"
+GOOGLE_CURSOR_WARNING = "initial cursor not found, try changing your query or there was at most 10 results"
+
+
+@pytest.mark.parametrize("logger_name, level, message, expected", [
+    ("JobSpy:ZipRecruiter", logging.ERROR, ZIP_FORBIDDEN_AA, "ZIP_RECRUITER_BLOCKED"),
+    ("JobSpy:ZipRecruiter", logging.ERROR, ZIP_FORBIDDEN_CF_WAF, "ZIP_RECRUITER_BLOCKED"),
+    ("JobSpy:Google", logging.WARNING, GOOGLE_CURSOR_WARNING, "GOOGLE_BLOCKED"),
+    # A block nobody diagnosed keeps its current text.
+    ("JobSpy:ZipRecruiter", logging.ERROR, ZIP_GEOBLOCKED_GDPR, "403"),
+    ("JobSpy:ZipRecruiter", logging.ERROR, ZIP_UNKNOWN_403, "403"),
+    # A signature counts only on its own board.
+    ("JobSpy:Indeed", logging.WARNING, ZIP_FORBIDDEN_AA, "403"),
+])
+def test_a_known_block_signature_gets_a_stable_text(logger_name, level, message, expected):
+    import backend.scraper.sources.jobspy as js
+
+    _board_logger(logger_name)
+    with js._capture_source_errors(["indeed", "zip_recruiter", "google"]) as capture:
+        logging.getLogger(logger_name).log(level, message)
+    assert list(capture.errors.values()) == [getattr(js, expected, expected)]
+
+
+def test_google_that_returned_rows_records_no_error(test_db, monkeypatch):
+    """jobspy logs the cursor warning also for a first page with up to 10 jobs; that board was not blocked."""
+    from backend.scraper.sources.jobspy import _run_sync
+
+    _fake_jobspy(
+        [_row("google", "Program Manager", "Acme", "https://google.test/a")],
+        log_errors=[("JobSpy:Google", GOOGLE_CURSOR_WARNING, logging.WARNING)],
+    )
+    result = _run_sync(_search(test_db, ["google"]))
+
+    google = result["source_breakdown"]["google"]
+    assert "error" not in google
+    assert google["returned"] == 1
 
 
 # jobspy/indeed/__init__.py reports an HTTP failure through log.info, with this

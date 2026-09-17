@@ -97,6 +97,42 @@ def _condense_error(msg: str) -> str:
     return text[:120]
 
 
+# Known blocks: the board refuses this scraper on every measured run, and no query
+# change helps. Each signature maps to a stable text. Every other failure keeps
+# its condensed text, so a failure nobody diagnosed stays visible as it is.
+ZIP_RECRUITER_BLOCKED = "the server refuses the requests that this scraper sends: HTTP 403"
+GOOGLE_BLOCKED = "the server returns a JavaScript check page that this scraper cannot read"
+_KNOWN_BLOCKS = {
+    # jobspy/ziprecruiter/__init__.py logs the 403 body at ERROR. "forbidden aa"
+    # comes from the server, "forbidden cf-waf" from Cloudflare in front of it.
+    "zip_recruiter": (re.compile(r"forbidden (aa|cf-waf)"), ZIP_RECRUITER_BLOCKED),
+    # jobspy/google/__init__.py logs this at WARNING when page 1 has no cursor.
+    "google": (re.compile(r"initial cursor not found"), GOOGLE_BLOCKED),
+}
+
+
+def _describe_error(key: str, msg: str) -> str:
+    """The stable text for a known block signature of this board, else _condense_error(msg)."""
+    signature, text = _KNOWN_BLOCKS.get(key, (None, None))
+    if signature and signature.search(str(msg)):
+        return text
+    return _condense_error(msg)
+
+
+def _board_errors(errors: dict, jobs_df) -> dict:
+    """The captured errors to report for one scrape_jobs() call.
+
+    jobspy logs the Google cursor warning also when page 1 held up to 10 jobs
+    (jobspy/google/__init__.py). A Google board that returned rows was not
+    blocked, so it gets no error.
+    """
+    returned = set()
+    if jobs_df is not None and not jobs_df.empty and "site" in jobs_df.columns:
+        returned = {str(s).lower() for s in jobs_df["site"].unique()}
+    return {k: v for k, v in (errors or {}).items()
+            if not (v == GOOGLE_BLOCKED and k in returned)}
+
+
 # The Indeed scraper reports an HTTP failure through log.info, not log.warning
 # (jobspy/indeed/__init__.py: "responded with status code: <code>"), so a
 # WARNING threshold never saw an Indeed failure. The threshold is INFO now, and
@@ -123,7 +159,7 @@ class _SourceLogCapture(logging.Handler):
             key = _site_key(record.name)
             if not key or key in self.errors:
                 return
-            self.errors[key] = _condense_error(message)
+            self.errors[key] = _describe_error(key, message)
         except Exception:  # a logging handler must never break the scrape
             pass
 
@@ -253,7 +289,7 @@ def _run_sync(search, proxy_url: str = None) -> dict:
         logger.info(f"Running JobSpy search: {search.name} — term='{search.search_term}', sources={sources}")
         with _capture_source_errors(sources) as capture:
             jobs_df = scrape_jobs(**kwargs)
-        _merge_source_errors(breakdown, capture.errors)
+        _merge_source_errors(breakdown, _board_errors(capture.errors, jobs_df))
         # Rows each board returned, counted here — before the title filter, the
         # company allow-list and the company exclude. It is the only truthful
         # answer to "did this board deliver anything at all?": `seen` counts what
