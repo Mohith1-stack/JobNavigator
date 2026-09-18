@@ -113,7 +113,10 @@ def _validated_location(location, country) -> str:
 def create_search(data: SearchCreate, db: Session = Depends(get_db)):
     payload = data.model_dump()
     payload["country"] = _validated_country(payload["country"])
-    payload["location"] = _validated_location(payload["location"], payload["country"])
+    # Only a keyword (JobSpy) search composes location with country; for the URL-driven modes
+    # (Jobright, Levels.fyi, freehire, LinkedIn Personal) country means nothing and must not reject a row.
+    if payload.get("search_mode", "keyword") == "keyword":
+        payload["location"] = _validated_location(payload["location"], payload["country"])
     search = Search(**payload)
     db.add(search)
     db.commit()
@@ -138,7 +141,8 @@ def update_search(search_id: str, updates: dict, db: Session = Depends(get_db)):
     # The pair is validated, not one field: a patch may carry either one, and the
     # other keeps its stored value. This runs before the writes, so a rejected
     # patch leaves the row alone.
-    if "location" in updates or "country" in updates:
+    mode = updates.get("search_mode", search.search_mode) or "keyword"
+    if mode == "keyword" and ("location" in updates or "country" in updates):
         _validated_location(
             updates.get("location", search.location),
             updates.get("country", search.country) or DEFAULT_COUNTRY,

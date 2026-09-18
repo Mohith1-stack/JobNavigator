@@ -108,9 +108,9 @@ GOOGLE_BLOCKED = "the server returned no job data, which is usually a JavaScript
 _KNOWN_BLOCKS = {
     # jobspy/ziprecruiter/__init__.py logs the 403 body at ERROR. "forbidden aa"
     # comes from the server, "forbidden cf-waf" from Cloudflare in front of it.
-    "zip_recruiter": (re.compile(r"forbidden (aa|cf-waf)"), ZIP_RECRUITER_BLOCKED),
+    "zip_recruiter": (re.compile(r"forbidden (aa|cf-waf)", re.I), ZIP_RECRUITER_BLOCKED),
     # jobspy/google/__init__.py logs this at WARNING when page 1 has no cursor.
-    "google": (re.compile(r"initial cursor not found"), GOOGLE_BLOCKED),
+    "google": (re.compile(r"initial cursor not found", re.I), GOOGLE_BLOCKED),
 }
 
 
