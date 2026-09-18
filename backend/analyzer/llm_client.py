@@ -326,7 +326,20 @@ async def _call_claude_code(prompt: str, system: str, model: str, max_tokens: in
         data = _json.loads(raw)
         text = data.get("result", raw)
     except _json.JSONDecodeError:
-        text = raw
+        data, text = None, raw
+
+    # `claude -p --output-format json` reports a refusal, an overload or a hit
+    # quota as a rc=0 envelope with is_error set. Returning its text as if it
+    # were the answer buried the reason in whatever the caller did next.
+    if isinstance(data, dict) and (data.get("is_error") or data.get("subtype") not in (None, "success")):
+        reason = (str(text or "").strip() or str(data.get("error") or "").strip()
+                  or str(data.get("subtype") or "").strip() or "no reason given")
+        if _QUOTA_RE.search(reason):
+            raise NonRetryableLLMError(f"Claude Code usage limit reached: {reason[:300]}")
+        raise RuntimeError(f"Claude Code reported an error: {reason[:300]}")
+    if not str(text or "").strip():
+        # Retryable on purpose: an empty completion is a bad minute, not a bad setup.
+        raise RuntimeError("Claude Code returned an empty reply")
 
     return {
         "text": text.strip(),
