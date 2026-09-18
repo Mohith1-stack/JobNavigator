@@ -545,6 +545,11 @@ def run_migration_statements(db, statements) -> list:
     return failed
 
 
+# Named, because run_migrations() must be able to tell whether this one statement
+# failed before it lets the backfill query the column.
+_ADD_COUNTRY_COLUMN = "ALTER TABLE searches ADD COLUMN IF NOT EXISTS country VARCHAR"
+
+
 def run_migrations(db):
     """Run ALTER TABLE migrations for columns that create_all() won't add to existing tables."""
     migrations = [
@@ -709,10 +714,118 @@ END $$;""",
         # counting it while its newest ScrapeLog row is no newer than this stamp.
         "ALTER TABLE searches ADD COLUMN IF NOT EXISTS warning_acknowledged_at TIMESTAMPTZ",
         "ALTER TABLE companies ADD COLUMN IF NOT EXISTS warning_acknowledged_at TIMESTAMPTZ",
+        # searches.country picks the Indeed domain and API country header. The
+        # column arrives WITHOUT a default on purpose: `ADD COLUMN ... DEFAULT x`
+        # writes x into every existing row, and the NULL rows are exactly the
+        # ones _backfill_search_country() below must still read. `SET DEFAULT`
+        # applies to later inserts only, so the two statements are safe in this order.
+        _ADD_COUNTRY_COLUMN,
+        "ALTER TABLE searches ALTER COLUMN country SET DEFAULT 'usa'",
     ]
-    run_migration_statements(db, migrations)
+    failed = run_migration_statements(db, migrations)
+
+    # The backfill reads searches.country. Without the column the SELECT raises
+    # out of run_seeds() and out of the FastAPI lifespan, and the container
+    # restarts forever — the exact whole-list abort run_migration_statements()
+    # exists to prevent. Skip the backfill instead, and say so.
+    if _ADD_COUNTRY_COLUMN in failed:
+        logger.warning("searches.country was not added — skipping the country backfill")
+    else:
+        try:
+            # Order matters: the backfill reads the country out of the location
+            # text, so it must run before the strip removes that text.
+            _backfill_search_country(db)
+            _strip_country_from_search_location(db)
+        except Exception as e:
+            db.rollback()
+            logger.warning("Country migration skipped: %s", str(e).strip()[:300])
 
     _rewrite_retired_status_transitions(db)
+
+
+def _backfill_search_country(db):
+    """One-shot: read a country out of each existing search's location text.
+
+    Only rows whose country is still NULL are visited, so this runs once per
+    row. Rows written after the migration carry the column default.
+    """
+    from backend.countries import DEFAULT_COUNTRY, country_from_location, split_country_suffix
+    from backend.models.db import Search
+
+    rows = db.query(Search).filter(Search.country.is_(None)).all()
+    if not rows:
+        return
+    for search in rows:
+        search.country = country_from_location(search.location)
+        # A region code is not a country: "Toronto, ON" reads as no country at
+        # all and falls to DEFAULT_COUNTRY. That guess used to be nearly
+        # harmless, because LinkedIn still received the region. The scraper now
+        # appends the guessed country to it, so an operator must be able to see
+        # which rows were guessed and correct them.
+        if str(search.location or "").strip() and split_country_suffix(search.location)[1] is None:
+            logger.warning(
+                "Search %s: location %r names no country — the backfill guessed %s",
+                search.name, search.location, DEFAULT_COUNTRY,
+            )
+    db.commit()
+    logger.info("Backfilled searches.country for %d row(s)", len(rows))
+
+
+def _strip_country_from_search_location(db):
+    """Remove the country segment from each keyword search's location text.
+
+    The migration needs this once. It is idempotent afterwards, and it also
+    cleans a country a user types into the field later.
+
+    `location` holds a city or a region, and `country` is the single country
+    source. The scraper appends the label of `country` to the location, so a
+    country left in the text would appear twice.
+
+    Three rules keep the result stable and honest:
+
+    1. `normalize_country()` decides what a country segment is, so "Toronto, ON"
+       stays whole and "Toronto, Canada" becomes "Toronto".
+    2. The last segment always stays. "Luxembourg, Luxembourg" becomes
+       "Luxembourg" and stops there; without this rule every restart would strip
+       one more segment and widen the search to the whole country.
+    3. A row whose text disagrees with the stored country keeps the country,
+       because the user picked that field, and the row is logged.
+
+    Only `keyword` rows are touched. They are the only rows the jobspy
+    composition reads. `jobright` reads `search.location` raw and drops the
+    parameter when the text is empty, so rewriting its rows would move this same
+    defect to a board this change never measured.
+    """
+    from backend.countries import split_country_suffix
+    from backend.models.db import Search
+
+    changed = 0
+    rows = db.query(Search).filter(
+        Search.location.isnot(None), Search.search_mode == "keyword"
+    ).all()
+    for search in rows:
+        place, found = split_country_suffix(search.location)
+        if found is None:
+            continue
+        if search.country and found != search.country:
+            logger.warning(
+                "Search %s: location said %s but country is %s — keeping country",
+                search.name, found, search.country,
+            )
+        if not place:
+            continue      # only a country name: there is no place to keep
+        # Repeat inside this one pass, so a name that repeats itself settles now
+        # instead of losing a segment on every later restart.
+        while True:
+            inner, more = split_country_suffix(place)
+            if more is None or not inner:
+                break
+            place = inner
+        search.location = place
+        changed += 1
+    if changed:
+        db.commit()
+        logger.info("Removed the country from searches.location for %d row(s)", changed)
 
 
 _RETIRED_STATUS_REMAP = {
